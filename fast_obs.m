@@ -1,69 +1,72 @@
 function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ... 
-    fast_obs(y,M,p,A,C,Q,R,S,mu,Sigma,control,equal,fixed,scale)
+    fast_obs(y,M,p,A,C,Q,R,mu,Sigma,S,control,equal,fixed,scale)
 %--------------------------------------------------------------------------
-% Title    : Parameter estimation of switching factor model in state-space modeling
-%            (regime-switching factor loadings and parallel VAR factors)
-% Function : Hidden state inference by switching Kalman algorithms
-%            and Model Parameters inference by EM algorithms.
-% Objective: To estimate underlying state-related changes in time series.
-% Usage    : [Mf,Ms,Sf,Ss,xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,LL] = ... 
-%               switch_obs(y,M,p,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale)
+% Title:    Parameter estimation and inference in state-space models with 
+%           regime switching (switching observations) assuming regimes known
+%
+% Function: Infer hidden state vectors and regimes by switching Kalman 
+%           filtering/smoothing (aka Hamilton filtering or Kim filtering) 
+%           and estimate model parameters by maximum likelihood (EM algorithm).
+%
+% Usage:    [Mf,Ms,Sf,Ss,xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,LL] = ... 
+%               fast_obs(y,M,p,A,C,Q,R,mu,Sigma,S,control,equal,fixed,scale)
 % 
-%          Inputs:  y - Time series (dimension NxT)
-%                   M - number of regimes
-%                   p - order of VAR model for state vector 
-%                   A - Initial estimates of VAR matrices A(l,j) in system equation 
-%                       x(t,j) = sum(l=1:p) A(l,j) x(t-l,j) + v(t,j), j=1:M (dimension rxrxpxM)  
-%                   C - Initial estimates of observation matrices C(j) in equation 
-%                       y(t) = C(j) x(t,j) + w(t), j=1:M (dimension NxrxM)
-%                   Q - Initial estimates of state noise covariance Cov(v(t,j)) (dimension rxrxM)
-%                   R - Pilot estimate of observation noise covariance Cov(w(t)) (dimension NxN)                  
-%                   mu - Pilot estimate of mean state mu(j)=E(x(t,j)) for t=1:p (dimension rxM) 
-%                   Sigma - Pilot estimate of covariance Sigma(j)=Cov(x(t,j)) for t=1:p (dimension rxrxM)           
-%                   Pi - Pilot state probability (dimension Mx1)
-%                   Z - Pilot Markov transition probability matrix (dimension MxM) 
-%                   control - optional struct variable with fields: 
-%                       'eps': tolerance for EM termination; defaults to 1e-8
-%                       'ItrNo': number of EM iterations; dfaults to 100 
-%                       'beta0': initial inverse temperature parameter for deterministic annealing; default 1 
-%                       'betarate': decay rate for temperature; default 1 
-%                       'safe': if true, regularizes variance matrices to be well-conditioned 
-%                        before taking inverse. If false, no regularization (faster but less safe)
-%                       'abstol': absolute tolerance for eigenvalues in matrix inversion (only effective if safe = true)
-%                       'reltol': relative tolerance for eigenvalues in matrix inversion
-%                        = inverse condition number (only effective if safe = true)
-%                   equal - optional struct variable with fields:
-%                       'A': if true, VAR transition matrices A(l,j) are equal across regimes j=1,...,M
-%                       'C': if true, observation matrices C(j) are equal across regimes
-%                       'Q': if true, VAR innovation matrices Q(j) are equal across regimes
-%                       'mu': if true, initial mean state vectors mu(j) are equal across regimes
-%                       'Sigma': if true, initial variance matrices Sigma(j) are equal across regimes
-%                   fixed - optional struct variable with fields 'A','C','Q','R','mu','Sigma'.
-%                       If not empty, each field must contain a matrix with 2 columns, the first for 
-%                       the location of fixed coefficients and the second for their values. 
-%                   scale - optional struct variable with fields:
-%                       'A': upper bound for norm of eigenvalues of A matrices. Must be in (0,1).
-%                       'C': value of the (euclidean) column norms of the matrices C(j). Must be positive.
-%                   
-%           Outputs: Mf - State probability estimated by switching Kalman Filter
-%                    Ms - State probability estimated by switching Kalman Smoother
-%                    Sf - Estimated states (Kalman Filter) 
-%                    Ss - Estimated states (Kalman Smoother) 
-%                    xf - Filtered state vector
-%                    xs - Smoothed state vector
-%                    Ahat - Estimated system matrix
-%                    Chat - Estimated observation matrix
-%                    Qhat - Estimated state noise cov
-%                    Rhat - Estimated observation noise cov
-%                    muhat - Estimated initial mean of state vector
-%                    Sigmahat - Estimated initial variance of state vector 
-%                    LL  - Log-likelihood
-%                    
-%           Variables:
-%                   T = length of signal
-%                   N = dimension of observation vector
-%                   r = dimension of state vector
-%                   M = number of regimes/states
+% Inputs:  
+%       y - Time series (dimension NxT)
+%       M - number of regimes
+%       p - order of VAR model for state vector 
+%       A - Initial estimates of VAR matrices A(l,j) in system equation 
+%           x(t,j) = sum(l=1:p) A(l,j) x(t-l,j) + v(t,j), j=1:M (dimension rxrxpxM)  
+%       C - Initial estimates of observation matrices C(j) in equation 
+%           y(t) = C(j) x(t,j) + w(t), j=1:M (dimension NxrxM)
+%       Q - Initial estimates of state noise covariance Cov(v(t,j)) (dimension rxrxM)
+%       R - Pilot estimate of observation noise covariance Cov(w(t)) (dimension NxN)                  
+%       mu - Pilot estimate of mean state mu(j)=E(x(t,j)) for t=1:p (dimension rxM) 
+%       Sigma - Pilot estimate of covariance Sigma(j)=Cov(x(t,j)) for t=1:p (dimension rxrxM)           
+%       S - regime sequence (length T)
+%       control - optional struct variable with fields: 
+%           'eps': tolerance for EM termination; defaults to 1e-8
+%           'ItrNo': number of EM iterations; dfaults to 100 
+%           'beta0': initial inverse temperature parameter for deterministic annealing; default 1 
+%           'betarate': decay rate for temperature; default 1 
+%           'safe': if true, regularizes variance matrices to be well-conditioned 
+%            before taking inverse. If false, no regularization (faster but less safe)
+%           'abstol': absolute tolerance for eigenvalues in matrix inversion (only effective if safe = true)
+%           'reltol': relative tolerance for eigenvalues in matrix inversion
+%            = inverse condition number (only effective if safe = true)
+%       equal - optional struct variable with fields:
+%           'A': if true, VAR transition matrices A(l,j) are equal across regimes j=1,...,M
+%           'C': if true, observation matrices C(j) are equal across regimes
+%           'Q': if true, VAR innovation matrices Q(j) are equal across regimes
+%           'mu': if true, initial mean state vectors mu(j) are equal across regimes
+%           'Sigma': if true, initial variance matrices Sigma(j) are equal across regimes
+%       fixed - optional struct variable with fields 'A','C','Q','R','mu','Sigma'.
+%           If not empty, each field must contain a matrix with 2 columns, the first for 
+%           the location of fixed coefficients and the second for their values. 
+%       scale - optional struct variable with fields:
+%           'A': upper bound for norm of eigenvalues of A matrices. Must be in (0,1).
+%           'C': value of the (euclidean) column norms of the matrices C(j). Must be positive.
+
+% Outputs: 
+%       Mf - State probability estimated by switching Kalman Filter
+%       Ms - State probability estimated by switching Kalman Smoother
+%       Sf - Estimated states (Kalman Filter) 
+%       Ss - Estimated states (Kalman Smoother) 
+%       xf - Filtered state vector
+%       xs - Smoothed state vector
+%       Ahat - Estimated system matrix
+%       Chat - Estimated observation matrix
+%       Qhat - Estimated state noise cov
+%       Rhat - Estimated observation noise cov
+%       muhat - Estimated initial mean of state vector
+%       Sigmahat - Estimated initial variance of state vector 
+%       LL  - Log-likelihood
+
+% Variables:
+%       T = length of signal
+%       N = dimension of observation vector
+%       r = dimension of state vector
+%       M = number of regimes/states
 %
 % Author:       David Degras
 %               University of Massachusetts Boston
@@ -72,12 +75,7 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 %               Siti Balqis Samdin
 %               Centre for Biomedical Engineering, Universiti Teknologi Malaysia.
 %               
-% Version xxx  : June 5 2018
-% Reference: [1] S. B. Samdin, C. Ting, H. Ombao, and S. Salleh,
-%              “A Unified Estimation Framework for State-Related Changes
-%              in Effective Brain Connectivity,” IEEE Trans. Biomed. Eng., 
-%              vol. -, no. -, pp. -, 2016.
-%            [2] K. Murphy, “Switching Kalman Filters,” 1998.
+% Version date: November 3, 2018
 %--------------------------------------------------------------------------
 
 
