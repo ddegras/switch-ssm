@@ -96,9 +96,10 @@ narginchk(5,15)
 % x(t) = x(t,1),...,x(t,M): state vector for all processes at time t (size M*r0)
 % X(t,j) = x(t,j),...,x(t-p+1,j)): state vector for j-th process at times t,...,t-p+1 (size r=p*r0)
 % X(t) = x(t,1),...,x(t,M): state vector for all processes at times t,...,t-p+1 (size M*p*r0)
-
-
 % We assume that the initial vectors x(1),...,x(1-p+1) are iid ~ N(mu,Sigma)
+
+% Data centering
+y = y - mean(y,2);
 
 
 %@@@@ Initialize optional arguments if not specified
