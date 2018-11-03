@@ -46,7 +46,7 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 %       scale - optional struct variable with fields:
 %           'A': upper bound for norm of eigenvalues of A matrices. Must be in (0,1).
 %           'C': value of the (euclidean) column norms of the matrices C(j). Must be positive.
-
+%
 % Outputs: 
 %       Mf - State probability estimated by switching Kalman Filter
 %       Ms - State probability estimated by switching Kalman Smoother
