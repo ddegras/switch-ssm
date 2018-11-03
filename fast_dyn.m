@@ -1,5 +1,5 @@
 function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ... 
-    fast_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,S,control,equal,fixed,scale)
+    fast_dyn(y,M,p,r,S,A,C,Q,R,mu,Sigma,control,equal,fixed,scale)
 
 %--------------------------------------------------------------------------
 %
@@ -82,12 +82,6 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 % Siti Balqis Samdin
 % Center for Biomedical Engineering, Universiti Teknologi Malaysia.
 %              
-% Version xxx  : June 13 2017
-% Reference: [1] S. B. Samdin, C. Ting, H. Ombao, and S. Salleh,
-%              “A Unified Estimation Framework for State-Related Changes
-%              in Effective Brain Connectivity,” IEEE Trans. Biomed. Eng., 
-%              vol. -, no. -, pp. -, 2016.
-%            [2] K. Murphy, "Switching Kalman Filters," 1998.
 %--------------------------------------------------------------------------
 
 
@@ -104,6 +98,9 @@ narginchk(4,15)
 % Data dimensions
 [N,T] = size(y);
 
+% Data centering 
+y = y - mean(y,2);
+
 % 'small' state vector: x(t), size r
 % 'big' state vector: X(t)=(x(t),...,x(t-p+1)), size p*r
 % We assume that the initial vectors x(1),...,x(p) are iid ~ N(mu,Sigma)
@@ -112,54 +109,45 @@ narginchk(4,15)
 
 
 %@@@@@ Initialize optional arguments if not specified @@@@@%
-if ~exist('fixed','var') || isempty(fixed)
+if ~exist('fixed','var')
     fixed = struct();
 end
-if ~exist('equal','var') || isempty(equal)
-    equal = struct('mu',true,'Sigma',true);
+if ~exist('equal','var')
+    equal = struct();
 end
-if ~exist('control','var') || isempty(control)
+if ~exist('control','var')
     control = struct();
 end
-if ~exist('scale','var') || isempty(scale)
-    scale = struct('A',.999,'C',[]);
-else 
-    if ~isfield(scale,'A')
-        scale.A = .999;
-    end
-    if ~isfield(scale,'C')
-        scale.C = [];
-    end
+if ~exist('scale','var')
+    scale = struct();
 end
 
 
 
-%@@@@@ Initialize estimators @@@@@%
 
-if nargin == 4
-    [A,C,Q,R,mu,Sigma,Pi,Z,S] = init_dyn(y,M,p,r);
-else
-    % Set Pi and Z to arbitrary values. These will not be used in the function
-    % but must be specified for the initialization function preproc_dyn
-    Pi = zeros(M,1);
-    Pi(1) = 1;
-    Z = eye(M);
-    if isfield(fixed,'Pi')
-        fixed = rmfield(fixed,'Pi');
-    end
-    if isfield(fixed,'Z')
-        fixed = rmfield(fixed,'Z');
-    end
+%@@@@@ Initialize estimators by OLS if not specified @@@@@%
+
+if nargin == 5
+    [A,C,Q,R,mu,Sigma,Pi,Z,S] = reestimate_dyn(y,M,p,r,S);
 end
-    
-[Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,~,~,fixed,skip,equal,...
+% Set Pi and Z to arbitrary values. These will not be used in the function
+% but must be specified for the initialization function preproc_dyn and 
+% for the Q-function Q_dyn
+Pi = zeros(M,1);
+Pi(1) = 1;
+Z = eye(M);
+if isfield(fixed,'Pi')
+    fixed = rmfield(fixed,'Pi');
+end
+if isfield(fixed,'Z')
+    fixed = rmfield(fixed,'Z');
+end
+
+% Preprocess input arguments    
+[Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,fixed,skip,equal,...
     eps,ItrNo,~,~,safe,abstol,reltol,verbose,scale] = ... 
     preproc_dyn(M,N,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale);
 
-% Set Markov chain probabilities to zero for Q-function calculation
-% (Will not be used elsewhere)
-Pihat = zeros(M,1); 
-Zhat = zeros(M);
 
 % Initial parameters 'A','C',... are expanded from r-space (x(t)) to
 % r-space (X(t)). The new parameters 'Ahat','Chat',... have dimensions:
