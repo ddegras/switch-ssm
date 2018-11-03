@@ -1,5 +1,5 @@
 function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ... 
-    fast_obs(y,M,p,A,C,Q,R,mu,Sigma,S,control,equal,fixed,scale)
+    fast_obs(y,M,p,r,S,A,C,Q,R,mu,Sigma,control,equal,fixed,scale)
 %--------------------------------------------------------------------------
 % Title:    Parameter estimation and inference in state-space models with 
 %           regime switching (switching observations) assuming regimes known
@@ -87,9 +87,10 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 %-------------------------------------------------------------------------%
 
 
+narginchk(5,15)
+
 % Data dimensions
 [N,T] = size(y);
-r = size(A,1);
 
 % x(t,j): state vector for j-th process at time t (size r0)
 % x(t) = x(t,1),...,x(t,M): state vector for all processes at time t (size M*r0)
@@ -117,11 +118,15 @@ end
 
 
 
-%@@@@ Initialize estimators @@@@%
+%@@@@ Initialize estimators by OLS if not specified @@@@%
+if nargin == 5
+    [A,C,Q,R,mu,Sigma,~,~] = ...
+        reestimate_obs(y,M,p,r,S,control,equal,fixed,scale);
+end
 % Set Pi and Z to arbitrary values. These will not be used in the function
-% but must be specified for the initialization function preproc_dyn
+% but must be specified for the initialization function preproc_obs
 Pi = zeros(M,1);
-Pi(S(1)) = 1;
+Pi(1) = 1;
 Z = eye(M);
 if isstruct(fixed) && isfield(fixed,'Pi')
     fixed = rmfield(fixed,'Pi');
@@ -130,10 +135,10 @@ if isstruct(fixed) && isfield(fixed,'Z')
     fixed = rmfield(fixed,'Z');
 end
 
+% Preprocess input arguments
 [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,fixed,equal,eps,...
     ItrNo,~,~,safe,abstol,reltol,verbose,scale] = ... 
-    preproc_obs(M,N,p,A,C,Q,R,mu,Sigma,Pi,Z,fixed,equal,control,scale);
-
+    preproc_obs(M,N,p,r,A,C,Q,R,mu,Sigma,Pi,Z,fixed,equal,control,scale);
 
 
 
@@ -188,7 +193,7 @@ for i = 1:ItrNo
 
     
 [xf,xs,x0,P0,Loglik,sum_CP,sum_MP,sum_Mxy,sum_P,sum_Pb] = ...
-    kfs_obs(y,M,p,Ahat,Chat,Qhat,Rhat,S,muhat,Sigmahat,safe,abstol,reltol);    
+    kfs_obs(y,M,p,r,Ahat,Chat,Qhat,Rhat,S,muhat,Sigmahat,safe,abstol,reltol);    
         
     % Log-likelihood
     LL(i) = Loglik; 
