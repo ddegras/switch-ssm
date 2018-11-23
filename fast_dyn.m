@@ -16,14 +16,15 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 % state-space model.
 %
 % USAGE
-%   [Mf,Ms,Sf,Ss,xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,LL] = ... 
-%       switch_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale)
+%   [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ... 
+%       fast_dyn(y,M,p,r,S,A,C,Q,R,mu,Sigma,control,equal,fixed,scale)
 % 
 % INPUTS  
 % y:    time series data (dimension NxT)
 % M:    number of regimes
 % p:    order of VAR model for state vector x(t)
 % r:    size of state vector x(t)
+% S:    fixed sequence of regimes S(t), t=1:T
 % A:    Initial estimate of VAR matrices A(l,j) in system equation 
 %       x(t,j) = sum(l=1:p) A(l,j) x(t-l,j) + v(t,j), j=1:M (dimension rxrxpxM)  
 % C:    Initial estimates of observation matrices C(j) in equation 
@@ -32,9 +33,6 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 % R:    Initial estimate of observation noise covariance Cov(w(t)) (dimension NxN)                  
 % mu:   Initial estimate of mean state mu(j)=E(x(t,j)) for t=1:p (dimension rxM) 
 % Sigma:  Initial estimate of covariance Sigma(j)=Cov(x(t,j)) for t=1:p (dimension rxrxM)           
-% Pi:   Pilot state probability (dimension Mx1)
-% Z:    Pilot Markov transition probability matrix (dimension MxM) 
-% S:    fixed sequence of regimes S(t), t=1:T
 % control:  optional struct variable with fields: 
 %       'eps': tolerance for EM termination; defaults to 1e-8
 %       'ItrNo': number of EM iterations; dfaults to 100 
@@ -59,10 +57,6 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 %       'C': value of the (euclidean) column norms of the matrices C(j). Must be positive.
 %
 % OUTPUTS
-% Mf:  State probability estimated by switching Kalman Filter
-% Ms:  State probability estimated by switching Kalman Smoother
-% Sf:  Estimated states (Kalman Filter) 
-% Ss:  Estimated states (Kalman Smoother) 
 % xf:  Filtered state vector
 % xs:  Smoothed state vector
 % Ahat:  Estimated system matrix
@@ -93,7 +87,7 @@ function [xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,LL] = ...
 %-------------------------------------------------------------------------%
 
 
-narginchk(4,15)
+narginchk(5,15)
 
 % Data dimensions
 [N,T] = size(y);
