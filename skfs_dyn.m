@@ -23,12 +23,13 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 %--------------------------------------------------------------------------
 
 % Model dimensions
-[~,T] = size(y); 
+[N,T] = size(y); 
 % Size of 'small' state vector x(t): r
 % Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
 
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
+warning('off','MATLAB:nearlySingularMatrix');
 warning('off','MATLAB:illConditionedMatrix');
 
 % Declare Kalman filter variables
@@ -67,6 +68,8 @@ Mx0 = zeros(p*r,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
 
 
 
+% Constant for likelihood calculation
+cst = - N / 2 * log(2*pi);
 
 
 %-------------------------------------------------------------------------%
@@ -93,7 +96,7 @@ if all(Acc == 0)
     Acc = eps * ones(M,1);
 end
 Mf(:,1) = Acc / sum(Acc);   % P(S(1)=j|y(1))
-xf(:,1) = xf1(:,:,1) * Acc; % E(x(1)|y(1))
+xf(:,1) = xf1(:,:,1) * Mf(:,1); % E(x(1)|y(1))
 L = log(sum(Acc));          % log(P(y(1)))
 
 Vhat = zeros(p*r,p*r,M);
@@ -136,7 +139,14 @@ for t=2:T
 %             end
  
             % Predictive Likelihood L(i,j,t) = P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
-            Lp(i,j) = mvnpdf(e.',[],Ve);  
+            % Choleski decomposition
+            [Lchol,err] = chol(Ve,'lower'); 
+            if ~err % case: Ve definite positive
+                Lp(i,j) = exp(cst - sum(log(diag(Lchol))) - 0.5 * norm(Lchol\e)^2);
+            else
+                Lp(i,j) = 0;
+            end
+%             Lp(i,j) = mvnpdf(e.',[],Ve);  
 
             % P(S(t-1)=i,S(t)=j|y(1:t)) (up to multiplicative constant)
             Mf2(i,j) = Lp(i,j) * Z(i,j) * Mf(i,t-1); % P(y(t),S(t-1)=i,S(t)=j|y(1:t-1))
@@ -159,7 +169,7 @@ for t=2:T
     Mf(:,t) = sum(Mf2).';    % P(S(t)=j|y(1:t))      
 
     % Weights of state components
-    W = Mf2 ./ repmat(Mf(:,t)',M,1);
+    W = Mf2 ./ (Mf(:,t).');
     W(isnan(W)) = 0;
   
     % Collapse M^2 distributions (X(t)|S(t-1:t),y(1:t)) to M (X(t)|S(t),y(1:t))
@@ -230,7 +240,8 @@ for t = T-1:-1:1
             end
         
             % E(X(t)|S(t)=j,S(t+1)=k,y(1:T))
-            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(1:r,k) - xptp1(:,j)); 
+%             xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(1:r,k) - xptp1(:,j)); 
+            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(1:r,k) - xptp1(:,j,k)); 
             % V(X(t)|S(t)=j,S(t+1)=k,y(1:T))
             Vs2(:,:,j,k) = Vf1t(:,:,j) + J * (Vs1tp1(1:r,1:r,k) - Vptp1(:,:,j,k)) * J.'; 
             % Cov(x(t+1),X(t)|S(t)=j,S(t+1)=k,y(1:T)) = V(x(t+1)|S(t+1)=k,y(1:T)) * J(t)'
@@ -262,8 +273,8 @@ for t = T-1:-1:1
     
     % Collapse M^2 distributions to M 
     for j = 1:M
-        xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T))
-%         Vhat = zeros(p*r,p*r);
+        xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T)) @@@@@@@@
+%         xs1(:,j) = W(j,:) * squeeze(xs2(:,j,:)); % @@@@@@@@@@@@
         for k = 1:M
             m = xs2(:,j,k) - xs1(:,j);
             Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m'));
