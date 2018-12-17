@@ -204,6 +204,15 @@ Cbig = zeros(N,p*r);
 Qbig = zeros(p*r,p*r,M);
 Sbig = zeros(p*r,p*r,M);
  
+% Function for switching Kalman filtering and smoothing
+if p == 1 && r == 1    
+    skfs_fun = @skfs_p1r1_dyn;
+elseif r == 1
+    skfs_fun = @skfs_r1_dyn;
+else
+    skfs_fun = @skfs_dyn;
+end
+ 
 
 for i=1:ItrNo
     
@@ -224,7 +233,7 @@ for i=1:ItrNo
     
     % Kim/Hamilton filtering and smoothing
     [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-        skfs_dyn(y,M,p,r,Abig,Cbig,Qbig,Rhat,mubig,Sbig,Pihat,Zhat,...
+        skfs_fun(y,M,p,r,Abig,Cbig,Qbig,Rhat,mubig,Sbig,Pihat,Zhat,...
             beta,safe,abstol,reltol);
 
     % Log-likelihood
