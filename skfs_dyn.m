@@ -37,7 +37,7 @@ warning('off','MATLAB:illConditionedMatrix');
 % Vp = zeros(p*r,p*r,M,M,T); % V(x(t)|y(1:t-1),S(t-1)=i)
 xp = zeros(r,M,M,T);	% E(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)  @@@@ reduce memory footprint
 Vp = zeros(r,r,M,M,T); % V(x(t)|y(1:t-1),S(t-1)=i)          @@@@ reduce memory footprint
-xf = zeros(p*r,T);      % E(X(t)|y(1:t))
+xf = zeros(r,T);      % E(x(t)|y(1:t))
 xf1 = zeros(p*r,M,T);	% E(X(t)|y(1:t),S(t)=j)
 xf2 = zeros(p*r,M,M);   % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)
 Vf1 = zeros(p*r,p*r,M,T); % V(X(t)|y(1:t),S(t)=j)
@@ -45,16 +45,14 @@ Vf2 = zeros(p*r,p*r,M,M); % V(X(t)|y(1:t),S(t-1)=i,S(t)=j)
 % CVf2 = zeros(r,r,M,M); % Cov(x(t),x(t-1)|y(1:t),S(t-1)=i,S(t)=j)
 Lp = zeros(M,M);        % P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
 Mf = zeros(M,T);        % P(S(t)=j|y(1:t))
-Mf2 = zeros(M,M);       % P(S(t-1)=i,S(t)=j|y(1:t))
+% Mf2 = zeros(M,M);       % P(S(t-1)=i,S(t)=j|y(1:t))
 
 % Declare Kalman smoothing variables
-xs = zeros(p*r,T);      % E(X(t)|y(1:T))
+xs = zeros(r,T);      % E(x(t)|y(1:T))
 xs2 = zeros(p*r,M,M);   % E(X(t)|y(1:T),S(t)=j,S(t+1)=k)
 Vs2 = zeros(p*r,p*r,M,M); % V(X(t)|y(1:T),S(t)=j,S(t+1)=k)
 CVs1 = zeros(r,p*r,M);  % Cov(x(t+1),X(t)|y(1:T),S(t+1)=k) 
 CVs2 = zeros(r,p*r,M,M); % Cov(x(t+1),X(t)|y(1:t),S(t)=j,S(t+1)=k)
-% CVs1 = zeros(p*r,p*r,M);  % Cov(X(t+1),X(t)|y(1:T),S(t+1)=k)            
-% CVs2 = zeros(p*r,p*r,M,M); % Cov(X(t+1),X(t)|y(1:t),S(t)=j,S(t+1)=k)    
 Ms = zeros(M,T);        % P(S(t)=j|y(1:T))
 
 % Other outputs
@@ -68,8 +66,9 @@ Mx0 = zeros(p*r,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
 
 
 
-% Constant for likelihood calculation
+% Auxliary quantities
 cst = - N / 2 * log(2*pi);
+Csmall = C(:,1:r);
 
 
 %-------------------------------------------------------------------------%
@@ -83,13 +82,15 @@ for j=1:M
     S_j = Sigma(:,:,j);
     e = y(:,1) - C * mu(:,j);
     Ve = C * S_j * C.' + R;
-    Ve = 0.5 * (Ve+Ve.');    
     if safe
         Ve = regfun(Ve,abstol,reltol);
     end
-    xf1(:,j,1) = mu(:,j) + S_j * C.' * (Ve\e);
-    Vf1(:,:,j,1) = S_j - S_j * C.' * (Ve\C) * S_j;
-    Acc(j) = Pi(j) * mvnpdf(e.',[],Ve);   
+    Lchol = chol(Ve,'lower');            
+    LinvCVp = (Lchol\C) * S_j;
+    Linve = Lchol\e;
+    Acc(j) = Pi(j) * exp(cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2));
+    xf1(:,j,1) = mu(:,j) + LinvCVp.' * Linve; 
+    Vf1(:,:,j,1) = S_j - (LinvCVp.' * LinvCVp);      
 end
 
 if all(Acc == 0)
@@ -114,48 +115,45 @@ for t=2:T
 
             
             % Store predictions
-%             xp(:,i,j,t) = xp_ij;
-%             Vp(:,:,i,j,t) = Vp_ij;
             xp(:,i,j,t) = xp_ij(1:r);
             Vp(:,:,i,j,t) = Vp_ij(1:r,1:r);
 
             % Prediction error for y(t)
             e = y(:,t) - C * xp_ij;
-            Ve = C * Vp_ij * C.' + R; % Variance of prediction error
-            Ve = 0.5 * (Ve+Ve.');
+%             Ve = C * Vp_ij * C.' + R; % Variance of prediction error
+            Ve = Csmall * Vp_ij(1:r,1:r) * Csmall.' + R;
+%             Ve = 0.5 * (Ve+Ve.');
             % Check that variance matrix is positive definite and well-conditioned
             if safe
                 Ve = regfun(Ve,abstol,reltol);
             end
-            
-            % Filtering update 
-            CVp = C * Vp_ij;
-            K = (CVp.') / Ve; % Kalman gain matrix
-            xf2(:,i,j) = xp_ij + K * e;         % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
-            Vf2(:,:,i,j) = Vp_ij - K * CVp;   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
-%             if t == T
-%               % Cov(x(t),x(t-1)|S(t-1)=i,S(t)=j,y(1:t))
-%                 CVf2(:,:,i,j) = (I - K*C) * A(:,:,j) * Vf1(:,:,i,t-1); 
-%             end
- 
-            % Predictive Likelihood L(i,j,t) = P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
+                        
             % Choleski decomposition
             [Lchol,err] = chol(Ve,'lower'); 
+            
             if ~err % case: Ve definite positive
-                Lp(i,j) = exp(cst - sum(log(diag(Lchol))) - 0.5 * norm(Lchol\e)^2);
+%                 CVp = C * Vp_ij;
+%                 LinvCVp = Lchol\CVp;
+                LinvCVp = (Lchol\Csmall) * Vp_ij(1:r,:);
+                Linve = Lchol\e;
+                % Predictive Likelihood L(i,j,t) = P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
+                Lp(i,j) = exp(cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2));
+                % Filtering update
+                xf2(:,i,j) = xp_ij + LinvCVp.' * Linve;         % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+                Vf2(:,:,i,j) = Vp_ij - (LinvCVp.' * LinvCVp);   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
             else
                 Lp(i,j) = 0;
+                xf2(:,i,j) = xp_ij;
+                Vf2(:,:,i,j) = Vp_ij;
             end
-%             Lp(i,j) = mvnpdf(e.',[],Ve);  
-
-            % P(S(t-1)=i,S(t)=j|y(1:t)) (up to multiplicative constant)
-            Mf2(i,j) = Lp(i,j) * Z(i,j) * Mf(i,t-1); % P(y(t),S(t-1)=i,S(t)=j|y(1:t-1))
-
+           
          end  % end j loop
 
     end % end i loop
   
-    if all(Mf2(:) == 0)
+    % P(S(t-1)=i,S(t)=j|y(1:t)) (up to multiplicative constant)
+    Mf2 = Lp .* Z .* Mf(:,t-1); % P(y(t),S(t-1)=i,S(t)=j|y(1:t-1))
+   if all(Mf2(:) == 0)
         Mf2 = eps * ones(M,M);
     end
     
@@ -185,7 +183,7 @@ for t=2:T
     end
   
     % Collapse M distributions (X(t)|S(t),y(1:t)) to 1 (X(t)|y(1:t))
-    xf(:,t) = xf1(:,:,t) * Mf(:,t); % E(X(t)|y(1:t))
+    xf(:,t) = xf1(1:r,:,t) * Mf(:,t); % E(X(t)|y(1:t))
   
 end % end t loop  
   
@@ -255,7 +253,7 @@ for t = T-1:-1:1
     
     % Smoothed probability distribution of S(t)
     U = diag(Mf(:,t)) * Z; % P(S(t)=j|S(t+1)=k,y(1:T))
-    U = U ./ repmat(sum(U),M,1); % scaling
+    U = U ./ sum(U); % scaling
     U(isnan(U)) = 0;
     
     Ms2 = U * diag(Ms(:,t+1)); % P(S(t)=j,S(t+1)=k|y(1:T))
@@ -268,12 +266,14 @@ for t = T-1:-1:1
     Ms2 = Ms2 / sum(Ms2(:)); % for numerical accuracy
     sum_Ms2 = sum_Ms2 + Ms2;
     Ms(:,t) = sum(Ms2,2); % P(S(t)=j|y(1:T))
-    W = Ms2 ./ repmat(Ms(:,t),1,M); % P(S(t+1)=k|S(t)=j,y(1:T)) 
+    W = Ms2 ./ Ms(:,t); % P(S(t+1)=k|S(t)=j,y(1:T)) 
     W(isnan(W)) = 0;
     
     % Collapse M^2 distributions to M 
+    xs2p = permute(xs2,[1,3,2]);
     for j = 1:M
-        xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T)) @@@@@@@@
+        xs1(:,j) = xs2p(:,:,j) * W(j,:).';
+%         xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T)) @@@@@@@@
 %         xs1(:,j) = W(j,:) * squeeze(xs2(:,j,:)); % @@@@@@@@@@@@
         for k = 1:M
             m = xs2(:,j,k) - xs1(:,j);
@@ -302,7 +302,7 @@ for t = T-1:-1:1
     end
 
     % Collapse M distributions to 1 
-    xs(:,t) = xs1 * Ms(:,t); % E(X(t)|y(1:T))
+    xs(:,t) = xs1(1:r,:) * Ms(:,t); % E(X(t)|y(1:T))
         
     % Required quantities for M step 
     for j=1:M
@@ -326,7 +326,5 @@ for j = 1:M
     MP0(:,:,j) = Ms(j,1) * (Vs1(:,:,j) + (xs1(:,j) * xs1(:,j)'));
 end
 sum_P = sum(sum_MP,3) + sum(MP,3);
-xf = xf(1:r,:); 
-xs = xs(1:r,:);
 
 
