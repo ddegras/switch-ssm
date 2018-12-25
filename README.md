@@ -1,4 +1,4 @@
-# switch_ssm
+# switch-ssm
 Markov-Switching State-Space Models
 
 This is a suite of Matlab functions for fitting Markov-switching state-space models (SSMs) to multivariate time series data by maximum likelihood. We consider three switching SSMs: switching dynamics, switching observations, and swiching vector autoregressive (VAR). The maximum likelihood estimator is calculated via an approximate the EM algorithm. (Exact calculations are not tractable because of exponential number of possible regime histories, M^T with M the number of states/regimes for the Markov chain and T the length of the time series.) To keep calculations tractable, we use the filtering/smoothing algorithm of Kim (1994) in the E-step of the EM algorithm.
