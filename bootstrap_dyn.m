@@ -1,35 +1,39 @@
-function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-    bootstrap_var(A,Q,mu,Sigma,Pi,Z,T,B,control,equal,fixed,scale,parallel)
+function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
+    bootstrap_dyn(A,C,Q,R,mu,Sigma,Pi,Z,T,B,control,equal,fixed,scale,parallel)
 
 %-------------------------------------------------------------------------%
 %
 % Title:    Parametric bootstrap in regime-switching state-space models
-%           (switching vector autoregressive model)
+%           (switching dynamics)
 %
 % Purpose:  This function performs parametric bootstrap of the switching
-%           vector autoregresssive (VAR) model 
-%           x(t) = A(1,S(t)) x(t-1) + ... + A(p,S(t)) x(t-p) + v(t,S(t))
-%           where x(t) is the observed measurement vector, S(t) is a latent 
-%           variable indicating the current (unobserved) regime, and
-%           v(t,S(t)) is a noise term. The model parameters are estimated
-%           by maximum likelihood (EM algorithm). 
+%           dynamics model 
+%           y(t) = C x(t) + w(t)
+%           x(t) = A(1,S(t)) x(t-1) + ... + A(p,S(t)) x(t-p) + v(t)
+%           where y indicates the observed measurement vector, x the 
+%           unbserved state vector, and S the current (unobserved) regime.
+%           The terms v and w are noise vectors. All model parameters are 
+%           (re-)estimated by maximum likelihood. ML estimation is 
+%           implemented via the EM algorithm. 
 %  
-% Usage:    [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-%               bootstrap_var(A,Q,mu,Sigma,Pi,Z,T,B,control,equal,fixed,...
-%               scale,parallel)
+% Usage:    [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot]... 
+%               = bootstrap_dyn(A,C,Q,R,mu,Sigma,Pi,Z,T,B,control,equal,...
+%                   fixed,scale,parallel)
 %
 % Inputs:   A - Estimate of transition matrix A(l,j) for l=1:p (lag) and  
-%               j=1:M (regime) (size rxrxpxM)  
+%               j=1:M (regime) (size rxrxpxM)
+%           C - Estimate of observation matrix C (size Nxr)
 %           Q - Estimate of noise covariance Q(j)=Cov(v(t)|S(t)=j), j=1:M
-%               (size rxrxM)                 
+%               (size rxrxM)   
+%           R - Estimate of observation noise covariance R = V(w(t))
 %           mu - Estimate of initial mean mu(j)=E(x(1)|S(1)=j), j=1:M  
 %               (size rxM) 
-%           Sigma -  Estimate of initial covariance Sigma(j)=V(x(1)|S(1)=j)), 
+%           Sigma - Estimate of initial covariance Sigma(j)=V(x(1)|S(1)=j)), 
 %                j=1:M (size rxrxM) 
-%           Pi - Initial estimate of probability Pi(j)=P(S(1)=j), j=1:M 
+%           Pi - Estimate of initial probability Pi(j)=P(S(1)=j), j=1:M 
 %               (size Mx1)
-%           Z - Initial estimate of transition probabilities Z(i,j) = 
-%               P(S(t)=j|S(t-1)=i), i,j=1:M (size MxM) 
+%           Z - Estimate of transition probability Z(i,j)=P(S(t)=j|S(t-1)=i)
+%               i,j=1:M (size MxM) 
 %           T - Time series length
 %           B - Number of bootstrap replicates (default = 100)
 %           control - optional struct variable with fields: 
@@ -52,25 +56,33 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %            equal - optional structure with fields:
 %                   'A': if true, estimates of transition matrices A(l,j) 
 %                       are equal across regimes j=1,...,M. Default = false
+%                   'C': if true, observation matrices C(j) are equal across 
+%                       regimes (default = false)
 %                   'Q': if true, estimates of innovation matrices Q(j) are
 %                       equal across regimes. Default = false
 %                   'mu': if true, estimates of initial mean state vectors 
 %                       mu(j) are equal across regimes. Default = true
 %                   'Sigma': if true, estimates of initial variance matrices 
 %                       Sigma(j) are equal across regimes. Default = true
-%            fixed - optional struct variable with fields 'A','Q','mu',
-%                   'Sigma', 'Pi', 'Z'. If not empty, each field must be an 
-%                   array of the same dimension as the parameter. Numeric 
-%                   values in the array are interpreted as fixed coefficients 
-%                   whereas NaN's represent free (unconstrained) coefficients. 
+%            fixed - optional struct variable with fields 'A','C','Q','R',
+%                   'mu','Sigma'. If not empty, each field must be an array
+%                   of the same dimension as the parameter. Numeric values 
+%                   in the array are interpreted as fixed coefficients 
+%                   whereas NaN's represent free coefficients. For example,
+%                   a diagonal structure for 'R' would be specified as
+%                   fixed.R = diag(NaN(N,1)). 
 %            scale - optional structure with fields:
 %                   'A': upper bound on norm of eigenvalues of A matrices. 
 %                       Must be in (0,1) to guarantee stationarity of state 
 %                       process.
+%                   'C': value of the (Euclidean) column norms of the 
+%                       matrices C(j). Must be positive.
 %                   
 %                   
 % Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
+%           Cboot - Bootstrap distribution of C (size NxrxB)
 %           Qboot - Bootstrap distribution of Q (size rxrxMxB)
+%           Rboot - Bootstrap distribution of R (size NxNxB)
 %           muboot - Bootstrap distribution of mu (size rxMxB) 
 %           Sigmaboot - Bootstrap distribution of Sigma (size rxrxMxB)
 %           Piboot - Bootstrap distribution of Pi (size MxB)
@@ -85,7 +97,7 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 
 
 % Check number of arguments
-narginchk(7,13);
+narginchk(9,15);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
@@ -113,16 +125,21 @@ if ~exist('parallel','var')
 end
 
 % Model dimensions
-[r,~,p,M] = size(A);
+M = numel(Pi);
+N = size(C,1);
+p = size(A,3);
+r = size(mu,1);
 
 % Bootstrap estimates
 Aboot = zeros(r,r,p,M,B);
+Cboot = zeros(N,r,B);
 Qboot = zeros(r,r,M,B);
+Rboot = zeros(N,N,B);
 muboot = zeros(r,M,B);
 Sigmaboot = zeros(r,r,M,B);
 Piboot = zeros(M,B);
 Zboot = zeros(M,M,B);
-LLboot = zeros(1,B);
+LLboot = zeros(B,1);
 warning('off');
 
 % Set up parallel pool if needed
@@ -143,6 +160,8 @@ LQ = zeros(r,r,M);
 for j = 1:M
     LQ(:,:,j) = chol(Q(:,:,j),'lower');
 end
+LR = chol(R,'lower');
+
 
 parfor (b=1:B, poolsize) 
     
@@ -157,49 +176,51 @@ parfor (b=1:B, poolsize)
     Sigma_ = Sigma;
     Z_ = Z;
     LQ_ = LQ;
-    x = zeros(r,T);
-    Xtm1 = [];
-        
-    % Parametric bootstrap
-    for t=1:T       
+    LR_ = LR;
+   
+    % Parametric bootstrap     
+    y = zeros(N,T);
+    for t = 1:T
         if t == 1
             c = cumsum(Pi);
-        else        
-            Stm1 = St;
-            c = cumsum(Z_(Stm1,:));
-        end          
-        St = M + 1 - sum(rand(1) <= c);        
-        if t <= p
-            x(:,t) = mvnrnd(mu_(:,St)',Sigma_(:,:,St))';
-            Xtm1 = [x(:,t) ; Xtm1];
+            St = M + 1 - sum(rand(1) <= c);
+            Xtm1 = reshape(mvnrnd(mu_(:,St)',Sigma_(:,:,St),p),p*r,1);
+            xt = Xtm1(1:p,:);
         else
-            vt = LQ_(:,:,St) * randn(N,1);
-            x(:,t) = Amat_(:,:,St) * Xtm1 + vt;
-            Xtm1 = [x(:,t) ; Xtm1(1:(p-1)*r)];               
-        end        
-    end       
-        
-    % EM algorithm 
-    [~,~,~,~,Ab,Qb,mub,Sigmab,Pib,Zb,LL] = ... 
-            switch_var(x,M,p,A,Q,mu,Sigma,Pi,Z,control,equal,fixed,scale);   
+            Stm1 = St;
+            c = cumsum(Z_(Stm1,:));              
+            St = M + 1 - sum(rand(1) <= c);                    
+            vt = LQ_(:,:,St) * randn(r,1);
+            xt = Amat_(:,:,St) * Xtm1 + vt;
+            Xtm1 = [xt;Xtm1(1:(p-1)*r)];
+        end
+        y(:,t) = C_ * xt + LR_ * randn(N,1);
+    end   
+
+    % EM algorithm  
+    [~,~,~,~,~,~,Ab,Cb,Qb,Rb,mub,Sigmab,Pib,Zb,LL] = ... 
+            switch_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale);   
     Aboot(:,:,:,:,b) = Ab;
+    Cboot(:,:,b) = Cb;
     Qboot(:,:,:,b) = Qb;
+    Rboot(:,:,b) = Rb;
     muboot(:,:,b) = mub;
     Sigmaboot(:,:,:,b) = Sigmab;
     Piboot(:,b) = Pib;
     Zboot(:,:,b) = Zb;
     LLboot(b) = max(LL);
-
+    
     % Display progress if required
     if verbose && parallel
-        parfor_progress;
+        parfor_progress;  
     end
 end
-    
+
 if verbose && parallel
     parfor_progress(0);
 end
 
 end
+
 
     
