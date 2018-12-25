@@ -87,6 +87,8 @@ indt = zeros(p*r,M);
 indt(1:r,:) = 1;
 indt = find(indt);
 
+% Constant for likelihood calculation
+cst = - N / 2 * log(2*pi);
 
 
 %-------------------------------------------------------------------------%
@@ -138,7 +140,7 @@ for t = 2:T
         % Prediction of x(t)
         xp_i = A * xf1(:,i,t-1);            % E(X(t)|y(1:t-1),S(t-1)=i)
         Vp_i = A * Vf1tm1(:,:,i) * A.' + Q; % V(X(t)|y(1:t-1),S(t-1)=i)
-        Vp_i = 0.5 * (Vp_i + Vp_i.');
+%         Vp_i = 0.5 * (Vp_i + Vp_i.');
        
         % Store predictions
         xp(:,i,t) = xp_i(indt);     
@@ -151,21 +153,30 @@ for t = 2:T
             e = y(:,t) - C_j * xp_i;
             CVp = C_j * Vp_i; % C_j * V(X(t)|y(1:t-1),S(t-1)=i) 
             Ve = CVp * C_j.' + R; % Variance of prediction error         
-            Ve = 0.5 * (Ve+Ve.');
+%             Ve = 0.5 * (Ve+Ve.');
 
             % Check that variance matrix is positive definite and well-conditioned
             if safe
                 Ve = regfun(Ve,abstol,reltol);
             end
            
-            % Filtering update 
-            K = (CVp.') / Ve; % Kalman gain matrix
-            xf2(:,i,j) = xp_i + K * e; 
-            Vf2(:,:,i,j) = Vp_i - K * CVp; % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
-
-            % Predictive Likelihood L(i,j,t) = P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
-            Lp(i,j) = mvnpdf(e.',[],Ve); 
- 
+            % Choleski decomposition
+            [Lchol,err] = chol(Ve,'lower'); 
+            
+            if ~err % case: Ve definite positive
+                LinvCVp = Lchol\CVp;
+                Linve = Lchol\e;
+                % Predictive Likelihood L(i,j,t) = P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
+                Lp(i,j) = exp(cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2));
+                % Filtering update
+                xf2(:,i,j) = xp_i + LinvCVp.' * Linve;         % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+                Vf2(:,:,i,j) = Vp_i - (LinvCVp.' * LinvCVp);   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+            else
+                Lp(i,j) = 0;
+                xf2(:,i,j) = xp_ij;
+                Vf2(:,:,i,j) = Vp_ij;
+            end         
+  
             % P(S(t-1)=i,S(t)=j|y(1:t)) (up to multiplicative constant)
             Mf2(i,j) = Lp(i,j) * Z(i,j) * Mf(i,t-1); % P(y(t),S(t-1)=i,S(t)=j|y(1:t-1))
 
@@ -173,10 +184,13 @@ for t = 2:T
 
     end % end i loop
   
-    % Numerical control
+    % P(S(t-1)=i,S(t)=j|y(1:t)) (up to multiplicative constant)
+    Mf2 = Lp .* Z .* Mf(:,t-1); % P(y(t),S(t-1)=i,S(t)=j|y(1:t-1))
     if all(Mf2(:) == 0)
         Mf2 = eps * ones(M);
-        warning('Kalman filter: outlying observation at time point %d',t); 
+%         if verbose
+%             warning('Kalman filter: outlying observation at time point %d',t); 
+%         end
     end
     
     % Update log-likelihood
@@ -189,7 +203,7 @@ for t = 2:T
     Mf(:,t) = sum(Mf2).'; % P(S(t)=j|y(1:t))      
 
     % Weights of state components
-    W = Mf2 ./ repmat(Mf(:,t).',M,1); % P(S(t-1)=i|S(t)=j,y(1:t))
+    W = Mf2 ./ (Mf(:,t).'); % P(S(t-1)=i|S(t)=j,y(1:t))
     W(isnan(W)) = 0;
   
     % Collapse M^2 distributions (x(t)|S(t-1:t),y(1:t)) to M (x(t)|S(t),y(1:t))
@@ -303,12 +317,14 @@ for t=T-1:-1:1
     W(isnan(W)) = 0;   
     
     % Collapse M^2 distributions (x(t)|S(t)=j,S(t+1)=k) to M (x(t)|S(t)=j)      
+    xs2p = permute(xs2,[1,3,2]); 
     for j = 1:M
-        xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:).'; % E(x(t)|S(t)=j,y(1:T))
+        xhat = xs2p(:,:,j) * W(j,:).'; 
         for k = 1:M
-            m = xs2(:,j,k) - xs1(:,j);
+            m = xs2(:,j,k) - xhat;
             Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m.'));
         end
+        xs1(:,j) = xhat;
         Vs1(:,:,j) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:T))
     end
     Vs1(~mask_Vf) = 0;
@@ -319,8 +335,9 @@ for t=T-1:-1:1
     
     % Required quantities for M step  
     for j = 1:M       
-        idx = mask_xX(:,j);
-        sum_Mxy(:,:,j) = sum_Mxy(:,:,j) + Ms(j,t) * xs1(idx,j) * y(:,t).';
+%         idx = mask_xX(:,j);
+        sum_Mxy(:,:,j) = sum_Mxy(:,:,j) + ...
+            Ms(j,t) * xs1(mask_xX(:,j),j) * y(:,t).';
         MP(:,:,j) = Ms(j,t) * (Vs1(:,:,j) + (xs1(:,j) * xs1(:,j).'));
         for k = 1:M
             % Use approximation E(x(t+1)|S(t)=j,S(t+1)=k,y(1:T)) ~= E(x(t+1)|S(t+1)=k,y(1:T))
