@@ -274,11 +274,11 @@ switch opts.segmentation
     else
         Ahat = zeros(r,p*r,I);
     end
-    if equal.Q
-        Qhat = repmat(Qhat(:,:,1),[1,1,I]);
-    else
+%     if equal.Q
+%         Qhat = repmat(Qhat(:,:,1),[1,1,I]);
+%     else
         Qhat = zeros(r,r,I);
-    end
+%     end
     for i = 1:I
         idx = start(i):start(i+1)-p-1;
         Xi = X(:,idx);
@@ -292,10 +292,13 @@ switch opts.segmentation
             Ahat(:,:,i) = Ai;
         end
         % Estimated innovation covariance
-        if ~equal.Q
+%         if ~equal.Q
             Qhat(:,:,i) = diag(var(Yi-Ahat(:,:,i)*Xi,0,2)); 
-        end
+%         end
     end   
+    if equal.Q
+        Qhat = repmat(mean(Qhat,3),1,1,I);
+    end
     
     case 'binary'
     % Case: binary segmentation
