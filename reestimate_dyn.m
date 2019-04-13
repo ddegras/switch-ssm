@@ -319,7 +319,7 @@ end
 
 
 Qhat = zeros(r,r,M);
-groupsize = arrayfun(@(j)sum(S(p+1:T)==j),1:M);
+groupsize = arrayfun(@(j)sum(S(p+1:T)==j),1:M)';
 
 % Unconstrained estimate  
 for j = 1:M
@@ -337,7 +337,7 @@ for j = 1:M
 end
 if equal.Q
     Qhat = reshape(Qhat,r^2,M) * (groupsize / sum(groupsize));
-    Qhat = reshape(Qhat,r,r,M);
+    Qhat = repmat(reshape(Qhat,r,r),1,1,M);
 end
         
 % Apply fixed coefficient constraints and regularize Q 
