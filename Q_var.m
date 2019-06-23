@@ -23,7 +23,7 @@ function Qval = Q_var(A,Q,mu,Sigma,Pi,Z,p,T,...
         try
             Qj_chol = chol(Q_j);
         catch
-            Qval = Inf;
+            Qval = -Inf;
             return
         end
         sum_MPj = sum_MP(:,:,j);
@@ -44,7 +44,7 @@ function Qval = Q_var(A,Q,mu,Sigma,Pi,Z,p,T,...
         try 
             Sigmaj_chol = chol(Sigma(:,:,j));
         catch
-            Qval = Inf;
+            Qval = -Inf;
             return
         end
         xc = Sigmaj_chol \ ...
