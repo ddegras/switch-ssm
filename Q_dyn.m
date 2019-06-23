@@ -27,7 +27,7 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
     % C/R contribution
     [R_chol,err] = cholcov(R);
     if err 
-        Qval = Inf;
+        Qval = -Inf;
         return
     end        
     Q_CR = -0.5*T*N*log(2*pi) - T * sum(log(diag(R_chol))) ...
@@ -44,7 +44,7 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
         Q_j = Q(:,:,j);
         [Qj_chol,err] = cholcov(Q_j);
         if err
-            Qval = Inf;
+            Qval = -Inf;
             return
         end
         sum_MPj = sum_MP(:,:,j);
@@ -65,7 +65,7 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
         Sigma_j = Sigma(:,:,j);
         [Sigmaj_chol,err] = cholcov(Sigma_j);
         if err
-            Qval = Inf;
+            Qval = -Inf;
             return
         end
         Mx0j = Mx0(:,j);
