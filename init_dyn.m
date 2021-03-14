@@ -1,6 +1,4 @@
-
-function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ...
-    = init_dyn(y,M,p,r,opts,control,equal,fixed,scale)
+function [pars,Shat] = init_dyn(y,M,p,r,opts,control,equal,fixed,scale)
 
 %--------------------------------------------------------------------------
 %
@@ -39,15 +37,16 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ...
 %           by it
 % 
 % OUTPUTS
-% Ahat:     estimate of transition matrices (rxrxpxM)
-% Chat:     estimate of observation matrix (Nxr with N = #rows in y) 
-% Qhat:     estimate of state noise covariance matrices (rxrxM)
-% Rhat:     estimate of transition matrices (NxN)
-% muhat:    estimate of initial mean of state vector (rx1)
-% Sigmahat:  estimate of initial covariance of state vector (rxr)
-% Pihat:    estimate of probabilities of initial state of Markov chain (Mx1)
-% Zhat:     estimate of transition probabilities (MxM)
-% Shat:     estimate of Markov chain states S(t) (Tx1)
+% pars: struct with fields
+%       A:  estimate of transition matrices (rxrxpxM)
+%       C:  estimate of observation matrix (Nxr with N = #rows in y) 
+%       Q:  estimate of state noise covariance matrices (rxrxM)
+%       R:  estimate of transition matrices (NxN)
+%       mu: estimate of initial mean of state vector (rx1)
+%       Sigma:  estimate of initial covariance of state vector (rxr)
+%       Pi: estimate of probabilities of initial state of Markov chain (Mx1)
+%       Z:  estimate of transition probabilities (MxM)
+% Shat: estimate of Markov chain states S(t) (Tx1)
 %
 %--------------------------------------------------------------------------
 
@@ -105,23 +104,21 @@ opts = opts0;
 
 control0 = struct('abstol',1e-8,'reltol',1e-4); 
 if exist('control','var') && isstruct(control) 
-    fnames = fieldnames(control0);
-    for i = 1:numel(fnames)
-        if isfield(control,fnames{i})
-            control0.(fnames{i}) = control.(fnames{i});
+    fname = fieldnames(control0);
+    for i = 1:numel(fname)
+        if isfield(control,fname{i})
+            control0.(fname{i}) = control.(fname{i});
         end
     end
 end
 control = control0;
-abstol = control.abstol;
-reltol = control.reltol;
 
 equal0 = struct('A',false,'Q',false);
 if exist('equal','var') && isstruct(equal)
-    fnames = fieldnames(equal0);
-    for i = 1:numel(fnames)
-        if isfield(equal,fnames{i})
-            equal0.(fnames{i}) = equal.(fnames{i});
+    fname = fieldnames(equal0);
+    for i = 1:numel(fname)
+        if isfield(equal,fname{i})
+            equal0.(fname{i}) = equal.(fname{i});
         end
     end
 end
@@ -135,10 +132,10 @@ assert(~(equal.A && equal.Q && M > 1),...
 fixed0 = struct('A',[],'C',[],'Q',[],'R',[],'mu',[],'Sigma',[],...
     'Pi',[],'Z',[]);
 if exist('fixed','var') &&isstruct(fixed)    
-    fnames = fieldnames(fixed0);
-    for i = 1:numel(fnames)
-        if isfield(fixed,fnames{i})
-            fixed0.(fnames{i}) = fixed.(fnames{i});
+    fname = fieldnames(fixed0);
+    for i = 1:numel(fname)
+        if isfield(fixed,fname{i})
+            fixed0.(fname{i}) = fixed.(fname{i});
         end
     end
 end
@@ -146,10 +143,10 @@ fixed = fixed0;
 
 scale0 = struct('A',.999,'C',[]);
 if exist('scale','var') &&isstruct(scale)
-        fnames = fieldnames(scale0);
-    for i = 1:numel(fnames)
-        if isfield(scale,fnames{i})
-            scale0.(fnames{i}) = scale.(fnames{i});
+        fname = fieldnames(scale0);
+    for i = 1:numel(fname)
+        if isfield(scale,fname{i})
+            scale0.(fname{i}) = scale.(fname{i});
         end
     end
 end
@@ -162,9 +159,9 @@ scale = scale0;
 %-------------------------------------------------------------------------%
 
 skip = struct();
-fnames = fieldnames(fixed);
-for i = 1:numel(fnames)
-    name = fnames{i};
+fname = fieldnames(fixed);
+for i = 1:numel(fname)
+    name = fname{i};
     skip.(name) = ~isempty(fixed.(name)) && all(~isnan(fixed.(name)(:)));
 end
 
@@ -233,8 +230,9 @@ end
 % constraints on A and Q. If there are equality constraints on both A and Q
 % or if M = 1, no need for segmentation & clustering. 
 if (equal.A && equal.Q) || M == 1 || (skip.A && skip.Q)
-    opts.segmentation = 'other';
-    opts.reestimation = false;
+    opts.segmentation = '';
+%     opts.segmentation = 'other';
+%     opts.reestimation = false;
 end
 
 switch opts.segmentation
@@ -244,7 +242,7 @@ switch opts.segmentation
     % classification. Heuristic: segments must be long enough so that
     % parameters (A,Q) can be reasonably well estimated, yet short enough
     % so that most segments do not contain change points and can be used
-    % for subsequent clustering. Practical rule: take segment length at
+    % for subsequent clustering. Thumb rule: take segment length at
     % least 6*p*r for accurate estimation and at most T/(3*M) for accurate
     % clustering (this ensures at least 3 times as many segments as
     % regimes/clusters).
@@ -258,9 +256,9 @@ switch opts.segmentation
         len = min(max(len,p+1),floor(T/M));
     end
     % Starting points of segments
-    start = [1:len:T-len+1,T+1];
+    start = [1:len:T-p,T-p+1];
     % If last segment too short, collapse it with previous one
-    if (start(end) - start(end-1)) < .9 * len
+    if (start(end) - start(end-1)) < .5 * len
         start = setdiff(start,start(end-1));
     end
     % Number of segments
@@ -280,7 +278,7 @@ switch opts.segmentation
         Qhat = zeros(r,r,I);
 %     end
     for i = 1:I
-        idx = start(i):start(i+1)-p-1;
+        idx = start(i):start(i+1)-1;
         Xi = X(:,idx);
         Yi = Y(:,idx);
         % Estimated transition matrix A=[A1...Ap]
@@ -299,7 +297,9 @@ switch opts.segmentation
     if equal.Q
         Qhat = repmat(mean(Qhat,3),1,1,I);
     end
-    
+    start = start+p; 
+    start(1) = 1;
+
     case 'binary'
     % Case: binary segmentation
     [Atmp,Qtmp,start] = find_all_cp(X,Y,opts.delta,opts.tol);
@@ -312,7 +312,7 @@ switch opts.segmentation
         Ahat = Atmp;
     end
     if equal.Q
-        Qhat = repmat(Qhat,[1,1,I]);
+        Qhat = repmat(mean(Qhat,3),[1,1,I]);
     else
         Qhat = Qtmp;
     end
@@ -328,29 +328,50 @@ end
 % and not much larger than the number M of clusters/regimes. Therefore, to 
 % enhance detection capacity, perform clustering on the diagonal terms of 
 % A & Q rather than on the entire parameters
-if ~((equal.A && equal.Q) || M == 1 || (skip.A && skip.Q))
+% if ~((equal.A && equal.Q) || M == 1 || (skip.A && skip.Q))
+if (equal.A && equal.Q) || M == 1 
+    Shat = repelem(1,T);    
+elseif skip.A && skip.Q
+    sse = zeros(M,T-p);
+    for j = 1:M
+        E = Y - Ahat(:,:,j) * X;
+        Lj = (chol(Qhat(:,:,j)))';
+        sse(j,:) = sum((Lj\E).^2);
+    end
+    [~,Shat] = min(sse);
+    Shat = [repelem(Shat(1),p), Shat];
+else        
     % Indices of diagonal terms in [A,Q]
-    idx = find(repmat(eye(r),[1,1,p+1]));
-    d = length(idx); % (p+1)*r
+%     idx = find(repmat(eye(r),[1,1,p+1]));
+%     d = length(idx); % (p+1)*r
     
     % For accurate clustering, estimated parameters A & Q for each segment
     % should be replicated according to segment lengths. (Segment lengths
     % may be very different in binary segmentation.) To avoid replicating 
     % the estimated parameters to a full set of T vectors (T may be large), 
     % divide all segment lengths by the shortest and replicate accordingly
-    start = start(:);
+%     start = start(:);
     segment_len = diff(start);
     new_len = round(segment_len/min(segment_len));
     Thetahat = cell(I,1);
     for i = 1:I
-        AQ = [Ahat(:,:,i),Qhat(:,:,i)];
-        Thetahat{i} = repmat(reshape(AQ(idx),[1,d]),[new_len(i),1]);
+%         AQ = [Ahat(:,:,i),Qhat(:,:,i)];
+%         Thetahat{i} = repmat(reshape(AQ(idx),[1,d]),[new_len(i),1]);
+        % Threshold small values to remove noise
+        Ai = reshape(Ahat(:,:,i),1,[]); 
+        thres = .1 * max(abs(Ai));
+        Ai(abs(Ai) < thres) = 0;
+        Qi = reshape(Qhat(:,:,i),1,[]); 
+        thres = .1 * max(diag(Qi));
+        Qi(abs(Qi) < thres) = 0;
+        Thetahat{i} = repmat([Ai,Qi],new_len(i),1);
     end
     Thetahat = vertcat(Thetahat{:});
     
     % K-means clustering
     [Shat,~] = kmeans(Thetahat,M,'Replicates',10); 
-    
+    clear Thetahat
+   
     % If S(1)!=1, say S(1)=j, swap cluster labels 1 and j so that S(1)=1 
     if Shat(1) ~= 1
         j = Shat(1);
@@ -360,14 +381,14 @@ if ~((equal.A && equal.Q) || M == 1 || (skip.A && skip.Q))
     end    
     
     % Extract I "true" values in Shat
-    idx = cumsum([1;new_len(1:end-1)]);
+    idx = cumsum([1,new_len(1:end-1)]);
     Shat = Shat(idx);
     
     % Replicate the elements Shat as required (I --> T)
+%     segment_len(1) = segment_len(1) + p; 
     Shat = repelem(Shat,segment_len);
 end
 
-clear AQ Thetahat
  
 
 
@@ -375,42 +396,50 @@ clear AQ Thetahat
 %                     Final parameter estimates                           %
 %-------------------------------------------------------------------------%
 
-[Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,~,~] = ...
-    reestimate_dyn(y,M,p,r,Shat,control,equal,fixed,scale);
 
-
+pars = reestimate_dyn(y,M,p,r,Shat,control,equal,fixed,scale);
 
 % Estimate initial probabilities Pi and transition probabilities Z
 % with a regularization step
-Pihat = zeros(M,1);
+Pihat = ones(M,1) * .01;
 Pihat(Shat(1)) = 1;
-Pihat(Pihat < 1) = .01;
 Pihat = Pihat / sum(Pihat);
+Pihat = round(Pihat,6);
+Pihat(1) = 1 - sum(Pihat(2:end));
 if ~isempty(fixed.Pi)
     idx = ~isnan(fixed.Pi);
     Pihat(idx) = fixed.Pi(idx);
 end  
+pars.Pi = Pihat;
 
 Zhat = zeros(M);
 for i=1:M
         for j=1:M
             Zhat(i,j) = sum(Shat(1:T-1) == i & Shat(2:T) == j);
         end
+        if all(Zhat(i,:) == 0) 
+            Zhat(i,:) = 1/M;
+        end
         % Clamp very small values of Z(i,j)
         Zi = Zhat(i,:);
         lb = .01 * max(Zi);
         Zi(Zi < lb) = lb;
         % Rescale so that row sums are 1
-        Zhat(i,:) = Zi/sum(Zi);
+        Zi = Zi/sum(Zi);
+        Zi = round(Zi,6);
+        Zi(1) = 1 - sum(Zi(2:M));
+        Zhat(i,:) = Zi;
 end
 if ~isempty(fixed.Z)
     idx = ~isnan(fixed.Z);
     Zhat(idx) = fixed.Z(idx);
 end
+pars.Z = Zhat;
 
 % Turn warnings back on
-warning('on','MATLAB:singularMatrix'); 
-warning('on','MATLAB:nearlySingularMatrix');
+% warning('on','MATLAB:singularMatrix'); 
+% warning('on','MATLAB:nearlySingularMatrix');
+
 
 
 end

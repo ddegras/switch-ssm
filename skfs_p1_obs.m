@@ -1,34 +1,27 @@
 function [Mf,Ms,xf,xs,x0,P0,L,sum_CP,sum_MP,sum_Ms2,sum_Mxy,sum_P,sum_Pb] = ...
-    skfs_obs(y,M,p,pars,beta,safe,abstol,reltol)
+    skfs_p1_obs(y,M,~,pars,beta,safe,abstol,reltol)
 
-A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
-Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
 
 % Model dimensions
 [N,T] = size(y);
-r = size(A,1);  
+r = size(pars.A,2);  
 % Size of 'small' state vector x(t,j): r
 % Size of state vector X(t,j) = (x(t,j),...,x(t-p+1,j)): p * r (all lags, 1 regime j)
 % Size of all concatenated state vectors X(t) = (X(t,1),...,X(t,M)): M * p * r (all lags, all regimes)  
 
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
 
 % Reshape parameter estimates
-% Atmp = zeros(M*p*r,M*p*r); 
-Atmp = kron(eye(M),diag(ones((p-1)*r,1),-r));
-Asmall = zeros(M*r,M*p*r);   
-% Ctmp = zeros(N,M*p*r,M); 
-Qtmp = zeros(M*p*r,M*p*r); 
-Stmp = zeros(M*p*r,M*p*r);
+Atmp = zeros(M*r,M*r); 
+Qtmp = zeros(M*r,M*r); 
+Stmp = zeros(M*r,M*r);
 for j = 1:M
-    idx1 = (j-1)*p*r + (1:r);
-    idx2 = (j-1)*p*r + (1:p*r);
-    idx3 = (j-1)*r + (1:r);   
-    Atmp(idx1,idx2) = A(:,:,j);   % for filtering 
-    Asmall(idx3,idx2) = A(:,:,j); % for smoothing
-    Qtmp(idx1,idx1) = Q(:,:,j);
-    Stmp(idx2,idx2) = kron(eye(p),Sigma(:,:,j));
+    idx = (j-1)*r+1:j*r;
+    Atmp(idx,idx) = A(:,:,j);     % for filtering 
+    Qtmp(idx,idx) = Q(:,:,j);
+    Stmp(idx,idx) = Sigma(:,:,j);
 end
-mu = repmat(mu,p,1);
 mu = mu(:);
 A = Atmp;
 Q = Qtmp;
@@ -47,26 +40,26 @@ Vp = zeros(M*r^2,M,T); % V(X(t)|y(1:t-1),S(t-1)=i)
 Lp = zeros(M,M); % P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
 % L % P(y(t)|y(1:t-1))
 xf = zeros(M*r,T); % E(X(t)|y(1:t))                     
-xf1 = zeros(M*p*r,M,T); % E(X(t)|y(1:t),S(t)=j)
-xf2 = zeros(M*p*r,M,M); % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)
-Vf1 = zeros((M*p*r)^2,T); % V(X(t)|y(1:t),S(t)=j)
-Vf2 = zeros(M*p*r,M*p*r,M,M); % V(X(t)|y(1:t),S(t-1)=i,S(t)=j)
+xf1 = zeros(M*r,M,T); % E(X(t)|y(1:t),S(t)=j)
+xf2 = zeros(M*r,M,M); % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)
+Vf1 = zeros((M*r)^2,T); % V(X(t)|y(1:t),S(t)=j)
+Vf2 = zeros(M*r,M*r,M,M); % V(X(t)|y(1:t),S(t-1)=i,S(t)=j)
 Mf = zeros(M,T); % P(S(t)=j|y(1:t))
 Mf2 = zeros(M,M); % P(S(t-1)=i,S(t)=j|y(1:t))
 
 % Declaring Kalman smoothing variables
-% xs = zeros(M*p*r,T); % E(X(t,l)|y(1:T))
+% xs = zeros(M*r,T); % E(X(t,l)|y(1:T))
 xs = zeros(M*r,T); % E(x(t,l)|y(1:T))                   
-xs2 = zeros(M*p*r,M,M); % E(X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
-Vs2 = zeros(M*p*r,M*p*r,M,M); % V(X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
-CVs2 = zeros(M*r,M*p*r,M,M); % Cov(x(t+1,l),X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
-MCP = zeros(M*r,M*p*r,M); % P(S(t)=j|y(1:T)) * E(x(t+1)X(t)'|y(1:T),S(t)=j)
+xs2 = zeros(M*r,M,M); % E(X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
+Vs2 = zeros(M*r,M*r,M,M); % V(X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
+CVs2 = zeros(M*r,M*r,M,M); % Cov(x(t+1,l),X(t,l)|y(1:T),S(t)=j,S(t+1)=k)
+MCP = zeros(M*r,M*r,M); % P(S(t)=j|y(1:T)) * E(x(t+1)X(t)'|y(1:T),S(t)=j)
 Ms = zeros(M,T); % P(S(t)=j|y(1:T))
-MP = zeros(M*p*r,M*p*r,M); % E(X(t)X(t)'|y(1:T),S(t)=j)
+MP = zeros(M*r,M*r,M); % E(X(t)X(t)'|y(1:T),S(t)=j)
 
 % Other outputs
 % P0 = zeros(r,r,M); % E(X(1,l)X(1,l)'|y(1:T)) 
-sum_CP = zeros(M*r,M*p*r); % sum(t=1:T-1) E(x(t+1,l)X(t,l)'|y(1:T))
+sum_CP = zeros(M*r,M*r); % sum(t=1:T-1) E(x(t+1,l)X(t,l)'|y(1:T))
 % sum_MP = zeros(r,r,M); % sum(t=1:T) P(S(t)=j|y(1:T)) * E(x(t)x(t)'|S(t)=j,y(1:T))
 sum_Ms2 = zeros(M,M); % sum(t=2:T) P(S(t-1)=i,S(t)=j|y(1:T))
 sum_Mxy = zeros(r,N,M); % sum(t=1:T) P(S(t)=j|y(1:T)) * E(x(t,j)|S(t)=j,y(1:T)) * y(t)'
@@ -79,23 +72,17 @@ sum_Mxy = zeros(r,N,M); % sum(t=1:T) P(S(t)=j|y(1:T)) * E(x(t,j)|S(t)=j,y(1:T)) 
 % Masks for accessing diagonal blocks of matrices/arrays
 
 % Mask for V(x(t,1)),...,V(x(t,M)) in V(X(t)) 
-tmp = zeros(p*r); tmp(1:r,1:r) = 1; 
-mask_Vp = (kron(eye(M),tmp) == 1);
+mask_Vp = (kron(eye(M),ones(r)) == 1);
 
-% Mask for V(X(t,1)|S(t)=1),...,V(X(t,M)|S(t)=1), ..., V(X(t,M)|S(t)=M)
-% in Mpr x Mpr x M array V(X(t)|S(t)=1), ..., V(X(t)|S(t)=M)
-mask_Vf = repmat(kron(eye(M),ones(p*r)) == 1,[1,1,M]);
+% Mask for V(x(t,1)|S(t)=1),...,V(x(t,M)|S(t)=1), ..., V(x(t,M)|S(t)=M)
+% in Mr x Mr x M array V(X(t)|S(t)=1), ..., V(X(t)|S(t)=M)
+mask_Vf = repmat(mask_Vp,[1,1,M]);
 
-% Indices of x(t,1),...,x(t,M) (size Mr) in X(t) (size Mpr)
-indt = zeros(p*r,M);
-indt(1:r,:) = 1;
-indt = find(indt);
-mask_xX = reshape(indt,r,M); 
+% Indices of x(t,1), ... ,x(t,M) in X(t) (j-th column = x(t,j))
+mask_xX = reshape(1:M*r,r,M); 
 
 % Constant for likelihood calculation
 cst = - N / 2 * log(2*pi);
-
-
 
 
 %-------------------------------------------------------------------------%
@@ -105,7 +92,7 @@ cst = - N / 2 * log(2*pi);
 
 % Initialize filter
 Acc = zeros(M,1); 
-Vf1t = zeros(M*p*r,M*p*r,M);
+Vf1t = zeros(M*r,M*r,M);
 
 for j=1:M
     C_j = C(:,:,j);
@@ -134,7 +121,7 @@ if all(Acc == 0)
 end
 Mf(:,1) = Acc / sum(Acc);   % P(S(1)=j|y(1))
 L = log(sum(Acc));          % log(P(y(1)))
-Vhat = zeros(M*p*r,M*p*r,M);
+Vhat = zeros(M*r,M*r,M);
 
 
 
@@ -154,7 +141,7 @@ for t = 2:T
 %         Vp_i = 0.5 * (Vp_i + Vp_i.');
        
         % Store predictions
-        xp(:,i,t) = xp_i(indt);     
+        xp(:,i,t) = xp_i;     
         Vp(:,i,t) = Vp_i(mask_Vp);
         
         for j = 1:M % S(t)=j      
@@ -162,9 +149,10 @@ for t = 2:T
             % Prediction of y(t)
             C_j = C(:,:,j);
             idx = mask_xX(:,j);
-            e = y(:,t) - C_j * xp_i(idx); 
+            e = y(:,t) - C_j * xp_i(idx);
             CVp = C_j * Vp_i(idx,:); % C_j * V(X(t)|y(1:t-1),S(t-1)=i) 
             Ve = CVp(:,idx) * C_j.' + R; % Variance of prediction error         
+%             Ve = 0.5 * (Ve+Ve.');
 
             % Check that variance matrix is positive definite and well-conditioned
             if safe
@@ -184,8 +172,8 @@ for t = 2:T
                 Vf2(:,:,i,j) = Vp_i - (LinvCVp.' * LinvCVp);   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
             else
                 Lp(i,j) = 0;
-                xf2(:,i,j) = xp_ij;
-                Vf2(:,:,i,j) = Vp_ij;
+                xf2(:,i,j) = xp_i;
+                Vf2(:,:,i,j) = Vp_i;
             end
             
 %             % Filtering update
@@ -213,6 +201,9 @@ for t = 2:T
     % Numerical control
     if all(Mf2(:) == 0)
         Mf2 = eps * ones(M);
+%         if verbose
+%             warning('Kalman filter: outlying observation at time point %d',t); 
+%         end
     end
     
     % Update log-likelihood
@@ -242,7 +233,7 @@ for t = 2:T
     Vf1(:,t) = Vf1t(mask_Vf);
     
     % Collapse M distributions (x(t)|S(t),y(1:t)) to 1 (x(t)|y(1:t))
-    xf(:,t) = xf1(indt,:,t) * Mf(:,t); % E(x(t,l)|y(1:t)) 
+    xf(:,t) = xf1(:,:,t) * Mf(:,t); % E(x(t,l)|y(1:t)) 
   
 end % end t loop  
   
@@ -257,15 +248,11 @@ end % end t loop
 % Reshape predicted variance
 Vp = reshape(Vp,(M*r)^2,T);
 
-% Redefine mask for container for predicted variance: Mr x Mr x M
-mask_Vp = (repmat(kron(eye(M),ones(r)),[1,1,M]) == 1);
-
-
 % Initialize smoother at time T
 Ms(:,T) = Mf(:,T);
 xs(:,T) = xf(:,T);
 xs1 = xf1(:,:,T);
-Vs1 = zeros(M*p*r,M*p*r,M);
+Vs1 = zeros(M*r,M*r,M);
 Vs1(mask_Vf) = Vf1(:,T);
 for j = 1:M
     idx = mask_xX(:,j);
@@ -274,7 +261,7 @@ for j = 1:M
 end
 sum_MP = MP;
 PT = squeeze(sum(MP,3)); % E(x(T,l)x(T,l)'|y(1:T))
-% Vhat = zeros(M*p*r,M*p*r,M);
+% Vhat = zeros(M*r,M*r,M);
 
 
 for t=T-1:-1:1
@@ -286,9 +273,9 @@ for t=T-1:-1:1
     % Predicted and filtered mean and variance (for faster access)
     xp1tp1 = xp(:,:,t+1);
     Vp1tp1 = zeros(M*r,M*r,M); % diag(V(x(t+1,l)|S(t)=j,y(1:t)),l=1:M), j=1:M
-    Vp1tp1(mask_Vp) = Vp(:,t+1);
+    Vp1tp1(mask_Vf) = Vp(:,t+1);
     xf1t = xf1(:,:,t);
-    Vf1t = zeros(M*p*r,M*p*r,M); % diag(V(X(t,l)|S(t)=j,y(1:t)),l=1:M), j=1:M
+    Vf1t = zeros(M*r,M*r,M); % diag(V(X(t,l)|S(t)=j,y(1:t)),l=1:M), j=1:M
     Vf1t(mask_Vf) = Vf1(:,t);
 
     
@@ -299,14 +286,14 @@ for t=T-1:-1:1
         % Kalman smoother gain matrix
         % J(t) = V(X(t,l)|S(t)=j,y(1:t)) * A(l)' * V(x(t+1,l)|S(t)=j,y(1:t))^{-1}
         % with A(l) = (A(1,l),...,A(M,l))     
-        J = Vf1t(:,:,j) * Asmall.' / Vp1tp1(:,:,j);
+        J = Vf1t(:,:,j) * A.' / Vp1tp1(:,:,j);
         
         for k = 1:M
             % E(X(t,l)|S(t)=j,S(t+1)=k,y(1:T))
-            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(indt,k) - xp1tp1(:,j)); 
+            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(:,k) - xp1tp1(:,j)); 
             % V(X(t,l)|S(t)=j,S(t+1)=k,y(1:T))
             Vs2(:,:,j,k) = Vf1t(:,:,j) + ...
-                J * (Vs1tp1(indt,indt,k) - Vp1tp1(:,:,j)) * J.';
+                J * (Vs1tp1(:,:,k) - Vp1tp1(:,:,j)) * J.';
             % Indexing by (indt,indt) to extract diagonal blocks
             % V(x(t+1,l)|y(1:T),S(t+1)=k) is okay b/c off-diagonal blocks
             % are already set to zero with code line Vs1(~mask_Vf) = 0;
@@ -314,7 +301,7 @@ for t=T-1:-1:1
             % Cov(x(t+1,l),x(t,l)|S(t)=j,S(t+1)=k,y(1:T)) = V(x(t+1,l)|S(t+1)=k,y(1:T)) * J(t)'
             % Equation (20) of "Derivation of Kalman filtering and smoothing equations"
             % by B. M. Yu, K. V. Shenoy, M. Sahani. Technical report, 2004.
-            CVs2(:,:,j,k) = Vs1tp1(indt,indt,k) * J.';              
+            CVs2(:,:,j,k) = Vs1tp1(:,:,k) * J.';              
         end
             
     end 
@@ -352,7 +339,7 @@ for t=T-1:-1:1
             
     % Collapse M distributions (x(t)|S(t)=j) to 1 (x(t))
 %     xs(:,t) = xs1 * Ms(:,t); % E(x(t)|y(1:T))
-    xs(:,t) = xs1(indt,:) * Ms(:,t); % E(x(t)|y(1:T))
+    xs(:,t) = xs1 * Ms(:,t); % E(x(t)|y(1:T))
     
     % Required quantities for M step  
     for j = 1:M       
@@ -363,7 +350,7 @@ for t=T-1:-1:1
         for k = 1:M
             % Use approximation E(x(t+1)|S(t)=j,S(t+1)=k,y(1:T)) ~= E(x(t+1)|S(t+1)=k,y(1:T))
             MCP(:,:,j,k) = Ms2(j,k) * (CVs2(:,:,j,k) + ...
-                (xs1tp1(indt,k) * xs2(:,j,k).')); 
+                (xs1tp1(:,k) * xs2(:,j,k).')); 
         end            
     end
     sum_CP = sum_CP + sum(sum(MCP,4),3);       
@@ -377,22 +364,19 @@ sum_P = sum(sum_MP,3) - P0;     % sum(t=2:T) E(X(t)X(t)'|y(1:T))
 sum_Pb = sum(sum_MP,3) - PT;    % sum(t=1:T-1) E(X(t)X(t)'|y(1:T))
 
 % Post-process output quantities
-x0 = reshape(xs1 * Ms(:,1),[p*r,M]);
+x0 = reshape(xs1 * Ms(:,1),[r,M]);
 xf = reshape(xf,[r,M,T]);
 xs = reshape(xs,[r,M,T]);
 
-P0 = reshape(P0(mask_Vf(:,:,1)),[p*r,p*r,M]);
-mask_CP = (kron(eye(M),ones(r,p*r)) == 1);
-sum_CP = reshape(sum_CP(mask_CP),[r,p*r,M]);
-tmp = zeros(p*r); tmp(1:r,1:r) = 1; 
-mask_P = kron(eye(M),tmp) == 1;
-sum_P = reshape(sum_P(mask_P),[r,r,M]);
-sum_Pb = reshape(sum_Pb(mask_Vf(:,:,1)),[p*r,p*r,M]);
+P0 = reshape(P0(mask_Vp),[r,r,M]);
+sum_CP = reshape(sum_CP(mask_Vp),[r,r,M]);
+sum_P = reshape(sum_P(mask_Vp),[r,r,M]);
+sum_Pb = reshape(sum_Pb(mask_Vp),[r,r,M]);
 sum_MPcopy = sum_MP;
 sum_MP = zeros(r,r,M);
 for j = 1:M
-    ind1 = (j-1)*p*r+1:(j-1)*p*r+r;
-    sum_MP(:,:,j) = sum_MPcopy(ind1,ind1,j);
+    idx = (j-1)*r + (1:r);
+    sum_MP(:,:,j) = sum_MPcopy(idx,idx,j);
 end
 
 

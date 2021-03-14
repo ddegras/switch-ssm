@@ -1,9 +1,12 @@
 function [xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_P] = ... 
-    kfs_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,S,safe,abstol,reltol)
+    kfs_dyn(y,M,p,r,pars,S,safe,abstol,reltol)
 
+
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; 
 
 % Model dimensions
-[~,T] = size(y); 
+[N,T] = size(y); 
 % Size of 'small' state vector x(t): r
 % Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
 
@@ -30,8 +33,18 @@ sum_MPb = zeros(p*r,p*r,M); % sum(t=2:T,S(t)=j) E(X(t-1)X(t-1)'|y(1:T))
 MP0 = zeros(p*r,p*r,M); % P(S(1)=j|y(1:T)) * E(X(1)X(1)'|y(1:T))
 Mx0 = zeros(p*r,M);     % P(S(1)=j|y(1:T)) * E(X(1)|y(1:T))
 
+% Log-likelihood
+L = zeros(1,T);
+% Constant for likelihood calculation
+cst = - N/2 * log(2*pi);
 
-
+% Expand matrices
+Abig = repmat(diag(ones((p-1)*r,1),-r),[1,1,M]);
+Abig(1:r,:,:) = A;
+Cbig = zeros(N,p*r);
+Cbig(:,1:r) = C;
+Qbig = zeros(p*r,p*r,M);
+Qbig(1:r,1:r,:) = Q;
 
 
 %-------------------------------------------------------------------------%
@@ -47,38 +60,51 @@ for t=1:T
     
     % Prediction of x(t)
     if t == 1         
-        xpt = mu(:,St);
-        Vpt = Sigma(:,:,St);
+        xpt = repmat(mu(:,St),p,1);
+        Vpt = kron(eye(p),Sigma(:,:,St));
     else
-        xpt = A(:,:,St) * xf(:,t-1); 
-        Vpt = A(:,:,St) * Vf(:,:,t-1) * A(:,:,St).' + Q(:,:,St); 
+        xpt = Abig(:,:,St) * xf(:,t-1); 
+        Vpt = Abig(:,:,St) * Vf(:,:,t-1) * Abig(:,:,St).' + Qbig(:,:,St);
     end
     % Store predictions
     xp(:,t) = xpt(1:r);
     Vp(:,:,t) = Vpt(1:r,1:r);  
   
     % Prediction error for y(t)
-    e = y(:,t) - C * xpt;
-    Ve = C * Vpt * C.' + R; % Variance of prediction error
-    Ve = 0.5 * (Ve+Ve.');
+    e = y(:,t) - C * xpt(1:r);
+    Ve = C * Vpt(1:r,1:r) * C.' + R; % Variance of prediction error
+%     Ve = 0.5 * (Ve+Ve.');
     % Check that variance matrix is positive definite and well-conditioned
     if safe
         Ve = regfun(Ve,abstol,reltol);
     end
 
-    % Filtering update 
-    CVp = C * Vpt;
-    K = (CVp.') / Ve; % Kalman gain matrix
-    xf(:,t) = xpt + K * e;       % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
-    Vf(:,:,t) = Vpt - K * CVp;   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+%     % Filtering update 
+%     CVp = C * Vpt;
+%     K = (CVp.') / Ve; % Kalman gain matrix
+%     xf(:,t) = xpt + K * e;       % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+%     Vf(:,:,t) = Vpt - K * CVp;   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
 %     if t == T
 %       % Cov(x(t),x(t-1)|S(t-1)=i,S(t)=j,y(1:t))
 %         CVf = (I - K*C) * A(:,:,j) * Vf(:,:,t-1); 
 %     end
  
-    % Log-likelihood L(t) = log(P(y(t)|y(1:t-1)))       
-    L(t) = log(mvnpdf(e.',[],Ve));  
-  
+
+    [Lchol,err] = chol(Ve,'lower');             
+    if ~err % case: Ve definite positive
+        LinvCVp = (Lchol\Cbig) * Vpt;
+        Linve = Lchol\e;
+        % Log-Likelihood 
+        L(t) = cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2);
+        % Filtering update
+        xf(:,t) = xpt + LinvCVp.' * Linve;         % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+        Vf(:,:,t) = Vpt - (LinvCVp.' * LinvCVp);   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+    else
+        L(t) = -Inf;
+        xf(:,t) = xpt;
+        Vf(:,:,t) = Vpt;
+    end
+
 end % end t loop  
 
 idx = isinf(L);
@@ -101,14 +127,13 @@ L = sum(L);
 % Initialize smoother at time T
 xs(:,T) = xf(1:r,T);
 Vst = Vf(:,:,T);
-A = A(1:r,:,:);
 St = S(T);
 sum_MP(:,:,St) = (Vst(1:r,1:r) + (xs(:,T) * xs(:,T).'));
 
 for t = T-1:-1:1
     
     % Store relevant vectors/matrices from previous iteration
-    Vstp1 = Vst; % V(X(t+1)|S(t+1),y(1:T))
+    Vstp1 = Vst(1:r,1:r); % V(x(t+1)|S(t+1),y(1:T))
 
     % Shorthand
     St = S(t);
@@ -126,11 +151,11 @@ for t = T-1:-1:1
     xst = xf(:,t) + J * (xs(:,t+1) - xp(:,t+1)); 
     xs(:,t) = xst(1:r);
     % V(X(t)|y(1:T))
-    Vst = Vf(:,:,t) + J * (Vstp1(1:r,1:r) - Vp(:,:,t+1)) * J.';  
+    Vst = Vf(:,:,t) + J * (Vstp1 - Vp(:,:,t+1)) * J.';  
     % Cov(x(t+1),X(t)|y(1:T)) = V(x(t+1)|y(1:T)) * J(t)'
     % Equation (20) of "Derivation of Kalman filtering and smoothing equations"
     % by B. M. Yu, K. V. Shenoy, M. Sahani. Technical report, 2004.
-    CVst = Vstp1(1:r,1:r) * J.';  
+    CVst = Vstp1 * J.';  
        
     % Required quantities for M step 
     % E(X(t)X(t)'|y(1:T))

@@ -1,5 +1,4 @@
-function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat] = ...
-    reestimate_obs(y,M,p,r,S,control,equal,fixed,scale)
+function pars = reestimate_obs(y,M,p,r,S,control,equal,fixed,scale)
 
 
 
@@ -76,6 +75,22 @@ scale = scale0;
 % Center the data
 y = y - mean(y,2);
 
+% Remove warnings when inverting singular matrices
+warning('off','MATLAB:singularMatrix');
+warning('off','MATLAB:nearlySingularMatrix');
+warning('off','MATLAB:illConditionedMatrix');
+
+
+%-------------------------------------------------------------------------%
+%         Check whether some parameters are entirely fixed                %
+%-------------------------------------------------------------------------%
+
+skip = struct();
+fnames = fieldnames(fixed);
+for i = 1:numel(fnames)
+    name = fnames{i};
+    skip.(name) = ~isempty(fixed.(name)) && all(~isnan(fixed.(name)(:)));
+end
 
 
 %-------------------------------------------------------------------------%
@@ -83,20 +98,33 @@ y = y - mean(y,2);
 %-------------------------------------------------------------------------%
 
 
+freq = tabulate(S);  % frequency table of regime
+Meff = size(freq,1); % effective number of regimes 
+unq = freq(:,1)';    % effective regime labels
+
 % Unconstrained estimate
-if equal.C
+if skip.C
+    Chat = fixed.C;
+elseif equal.C
     [U,~,~] = svd(y,'econ');
     Chat = repmat(U(:,1:r),1,1,M);
 else    
     Chat = zeros(N,r,M);
+    if Meff < M 
+        [Uall,~,~] = svd(y,'econ');
+    end
     for j = 1:M
-        [U,~,~] = svd(y(:,S == j),'econ');
-        Chat(:,:,j) = U(:,1:r);
+        if ismember(j,unq)
+            [U,~,~] = svd(y(:,S == j),'econ');
+            Chat(:,:,j) = U(:,1:r);
+        else
+            Chat(:,:,j) = Uall(:,1:r);
+        end
     end
 end
 
 % Apply eventual scale constraints
-if ~isempty(scale.C)
+if ~skip.C && ~isempty(scale.C)
     Chat = Chat * scale.C;
 end
         
@@ -113,7 +141,7 @@ for j = 1:M
 end
 
 % Re-estimate C(j) under fixed coefficient constraints if required
-if ~isempty(fixed.C) 
+if ~skip.C && ~isempty(fixed.C) 
     for j = 1:M
         Ctmp = fixed.C(:,:,j);
         idx = find(~isnan(Ctmp));
@@ -124,7 +152,7 @@ if ~isempty(fixed.C)
         C_j = Chat(:,:,j);
         XX = xhat(:,Sj) * xhat(:,Sj)';
         XY = xhat(:,Sj) * y(:,Sj)';
-        [C_j,err] = PG_C(C_j,XY,XX,eye(N),scale.C,fixed_C{j},100);
+        [C_j,err] = PG_C(C_j,XY,XX,eye(N),scale.C,fixed_C,100);
         Chat(:,:,j) = C_j;        
         if err
              error(['Cannot find estimate of C%d satisfying both',...
@@ -143,20 +171,19 @@ end
 %-------------------------------------------------------------------------%
 
 
-
+    
 % Unconstrained estimates over each subset Sj = {t:S(t)=j)
-Rhat = zeros(N,N,M);
-for j = 1:M
-    Sj = (S == j);
-    Ej = y(:,Sj) - Chat(:,:,j) * xhat(:,Sj);
+Rhat = zeros(N,N,Meff);
+for j = 1:Meff
+    Sj = (S == unq(j));
+    Ej = y(:,Sj) - Chat(:,:,unq(j)) * xhat(:,Sj);
     Rhat(:,:,j) = cov(Ej');
 end
 
 % Weighted average of previous estimates, with weights proportional to
 % occupancy time
-freq = tabulate(S);
-occup = freq(:,3);
-Rhat = reshape(Rhat,N*N,M) * occup;
+occup = freq(:,3) / sum(freq(:,3));
+Rhat = reshape(Rhat,N*N,Meff) * occup;
 Rhat = reshape(Rhat,N,N);
 Rhat = 0.5 * (Rhat + Rhat');
 
@@ -168,14 +195,15 @@ end
 
 % Check positive-definiteness and conditioning. 
 % Diagonalize and regularize if needed. 
-eigval = eig(Rhat);
-if min(eigval) < max(abstol,reltol*max(eigval))
-    Rhat = regfun(diag(diag(Rhat)),abstol,reltol);
-    if ~isempty(fixed.R)
-        Rhat(idx) = fixed.R(idx);
+if ~skip.R
+    eigval = eig(Rhat);
+    if min(eigval) < max(abstol,reltol*max(eigval))
+        Rhat = regfun(diag(diag(Rhat)),abstol,reltol);
+        if ~isempty(fixed.R)
+            Rhat(idx) = fixed.R(idx);
+        end
     end
 end
-
 
 
 %-------------------------------------------------------------------------%
@@ -184,6 +212,7 @@ end
 
 
 % Assume mu(1)=...=mu(M) and Sigma(1)=...=Sigma(M)
+
 
 % Number of time points used in estimation of mu and Sigma
 t0 = min([10,5*p,T]);  
@@ -213,132 +242,137 @@ end
 %-------------------------------------------------------------------------%
 
 
-Ahat = zeros(r,p*r,M);
-group = cell(M,1);      % G(j) = {t:S(t)=...=S(t+p)=j}
-groupsize = zeros(M,1); % #G(j)
-XX = zeros(p*r,p*r,M);  % sum(t in G(j)) Xhat(t,j) Xhat(t,j)'
-YX = zeros(r,p*r,M);    % sum(t in G(j)) xhat(t,j) Xhat(t,j)'
-YY = zeros(r,r,M);      % sum(t in G(j)) xhat(t,j) xhat(t,j)'
-fixed_A = cell(M,1);
-
-% Prepare estimation
-for j = 1:M
-    
-    % Fixed coefficients in A(j), two-column format
-    if ~isempty(fixed.A)
-        Atmp = fixed.A(:,:,:,j);
-        idx = find(~isnan(Atmp));
-        fixed_A{j} = [idx,Atmp(idx)];
-    end
-    
-    Sj = (S == j);          % Sj = {t:S(t)=j)
-    test = zeros(p+1,T-p); 
-    for l = 0:p
-        test(l+1,:) = Sj(p-l+1:T-l);
-    end
-    group{j} = find(all(test));   
-    groupsize(j) = numel(group{j});
-    if groupsize(j) == 0
-        continue
-    end
-    
-    % Set up autoregression for A(j) and Q(j)
-    Yj = xhat(:,p+group{j});
-    Xj = zeros(p*r,groupsize(j));
-    for l = 1:p
-        Xj((l-1)*r+1:l*r,:) = xhat(:,(p-l)+group{j});
-    end 
-    XX(:,:,j) = Xj * Xj';
-    YX(:,:,j) = Yj * Xj';
-    YY(:,:,j) = Yj * Yj';
+if skip.A
+    Ahat = fixed.A;
 end
-    
-% Estimate A(j) 
-for j = 1:M
-    
-    % Set up autoregression
-    if equal.A
-        XXj = sum(XX,3);
-        YXj = sum(YX,3);
-    else
-        XXj = XX(:,:,j);
-        YXj = YX(:,:,j);
-    end
-    
-    % Unconstrained estimate of A(j)
-    if isempty(fixed_A{j})
-        A_j = YXj/XXj; 
-        if any(isnan(A_j(:)) | isinf(A_j(:)))
-            A_j = YXj * pinv(XXj);
-        end
-        
-    % Constrained estimate of A(j)
-    else
-        isfixed = fixed_A{j}(:,1);
-        isfree = setdiff(1:p*r^2,isfixed);
-        % Vectorize the problem and remove rows associated with fixed
-        % coefficients of A(j)
-        mat = kron(XXj,eye(r));
-        vec = reshape(YXj,p*r^2,1);
-        A_j = zeros(p*r^2,1);
-        A_j(isfree) = mat(isfree,isfree)\vec(isfree);
-        if any(isnan(A_j)|isinf(A_j))
-            A_j(isfree) = pinv(mat(isfree,isfree)) * vec(isfree);
-        end
-        A_j(isfixed) = fixed_A{j}(:,2);        
-        A_j = reshape(A_j,r,p*r);
-    end    
-    
-    if equal.A
-        Ahat = repmat(A_j,1,1,M);
-        break
-    end
-    Ahat(:,:,j) = A_j;
-    
-end
+if ~skip.A || ~skip.Q
+    Ahat = zeros(r,p*r,M);
+    group = cell(M,1);      % G(j) = {t:S(t)=...=S(t+p)=j}
+    groupsize = zeros(M,1); % #G(j)
+    XX = zeros(p*r,p*r,M);  % sum(t in G(j)) Xhat(t,j) Xhat(t,j)'
+    YX = zeros(r,p*r,M);    % sum(t in G(j)) xhat(t,j) Xhat(t,j)'
+    YY = zeros(r,r,M);      % sum(t in G(j)) xhat(t,j) xhat(t,j)'
+    fixed_A = cell(M,1);
 
-% Check that A define a stationary process and regularize if needed
-Abig = diag(ones((p-1)*r,1),-r);
-for j = 1:M
-    Abig(1:r,:) = Ahat(:,:,j);
-    eigval = abs(eig(Abig));
-    if any(eigval > scale.A)
-        % Easy regularization: no fixed coefficients or all fixed
-        % coefficients are zero. Use algebraic properties of eigenvalues
-        % and eigenvectors of Abig
-        if isempty(fixed_A{j}) || all(fixed_A{j}(:,2) == 0)
-            A_j = reshape(Ahat(:,:,j),r,r,p);
-            c = .999 * scale.A / max(eigval);
-            for l = 1:p
-                A_j(:,:,l) = c^l * A_j(:,:,l);
-            end
-            Ahat(:,:,j) = reshape(A_j,r,p*r);
-            
-        % Standard regularization: nonzero fixed coefficients. 
-        % Use projected gradient method
+    % Prepare estimation
+    for j = 1:M
+
+        % Fixed coefficients in A(j), two-column format
+        if ~isempty(fixed.A)
+            Atmp = fixed.A(:,:,:,j);
+            idx = find(~isnan(Atmp));
+            fixed_A{j} = [idx,Atmp(idx)];
+        end
+
+        Sj = (S == j);          % Sj = {t:S(t)=j)
+        test = zeros(p+1,T-p); 
+        for l = 0:p
+            test(l+1,:) = Sj(p-l+1:T-l);
+        end
+        group{j} = find(all(test));   
+        groupsize(j) = numel(group{j});
+        if groupsize(j) == 0
+            continue
+        end
+
+        % Set up autoregression for A(j) and Q(j)
+        Yj = xhat(:,p+group{j});
+        Xj = zeros(p*r,groupsize(j));
+        for l = 1:p
+            Xj((l-1)*r+1:l*r,:) = xhat(:,(p-l)+group{j});
+        end 
+        XX(:,:,j) = Xj * Xj';
+        YX(:,:,j) = Yj * Xj';
+        YY(:,:,j) = Yj * Yj';
+    end
+
+    % Estimate A(j) 
+    for j = 1:M
+
+        % Set up autoregression
+        if equal.A
+            XXj = sum(XX,3);
+            YXj = sum(YX,3);
         else
-            A_j = Ahat(:,:,j);
-            if equal.A
-                YXj = sum(YX,3);
-                XXj = sum(XX,3);
-            else
-                YXj = YX(:,:,j);
-                XXj = XX(:,:,j);
+            XXj = XX(:,:,j);
+            YXj = YX(:,:,j);
+        end
+
+        % Unconstrained estimate of A(j)
+        if isempty(fixed_A{j})
+            A_j = YXj/XXj; 
+            if any(isnan(A_j(:)) | isinf(A_j(:)))
+                A_j = YXj * pinv(XXj);
             end
-            [A_j,err] = PG_A(A_j,YXj,XXj,eye(r),scale.A,fixed_A,100);
-            Ahat(:,:,j) = A_j;
-            if err
-                error(['Cannot find estimate of A%d satisfying both the',...
-                ' fixed coefficient constraints (''fixed.A'') and',...
-                ' eigenvalue constraints (''scale.A'').\nPlease check',...
-                ' that the constraints are mutually compatible and',...
-                ' consider modifying/removing some constraints.'],j);
+
+        % Constrained estimate of A(j)
+        else
+            isfixed = fixed_A{j}(:,1);
+            isfree = setdiff(1:p*r^2,isfixed);
+            % Vectorize the problem and remove rows associated with fixed
+            % coefficients of A(j)
+            mat = kron(XXj,eye(r));
+            vec = reshape(YXj,p*r^2,1);
+            A_j = zeros(p*r^2,1);
+            A_j(isfree) = mat(isfree,isfree)\vec(isfree);
+            if any(isnan(A_j)|isinf(A_j))
+                A_j(isfree) = pinv(mat(isfree,isfree)) * vec(isfree);
+            end
+            A_j(isfixed) = fixed_A{j}(:,2);        
+            A_j = reshape(A_j,r,p*r);
+        end    
+
+        if equal.A
+            Ahat = repmat(A_j,1,1,M);
+            break
+        end
+        Ahat(:,:,j) = A_j;
+
+    end
+
+    % Check that A define a stationary process and regularize if needed
+    Abig = diag(ones((p-1)*r,1),-r);
+    for j = 1:M
+        Abig(1:r,:) = Ahat(:,:,j);
+        eigval = abs(eig(Abig));
+        if any(eigval > scale.A)
+            % Easy regularization: no fixed coefficients or all fixed
+            % coefficients are zero. Use algebraic properties of eigenvalues
+            % and eigenvectors of Abig
+            if isempty(fixed_A{j}) || all(fixed_A{j}(:,2) == 0)
+                A_j = reshape(Ahat(:,:,j),r,r,p);
+                c = .999 * scale.A / max(eigval);
+                for l = 1:p
+                    A_j(:,:,l) = c^l * A_j(:,:,l);
+                end
+                Ahat(:,:,j) = reshape(A_j,r,p*r);
+
+            % Standard regularization: nonzero fixed coefficients. 
+            % Use projected gradient method
+            else
+                A_j = Ahat(:,:,j);
+                if equal.A
+                    YXj = sum(YX,3);
+                    XXj = sum(XX,3);
+                else
+                    YXj = YX(:,:,j);
+                    XXj = XX(:,:,j);
+                end
+                [A_j,err] = PG_A(A_j,YXj,XXj,eye(r),scale.A,fixed_A,100);
+                Ahat(:,:,j) = A_j;
+                if err
+                    error(['Cannot find estimate of A%d satisfying both the',...
+                    ' fixed coefficient constraints (''fixed.A'') and',...
+                    ' eigenvalue constraints (''scale.A'').\nPlease check',...
+                    ' that the constraints are mutually compatible and',...
+                    ' consider modifying/removing some constraints.'],j);
+                end
             end
         end
-    end
-    if equal.A 
-        Ahat = repmat(Ahat(:,:,1),[1,1,M]);
-        break
+        if equal.A 
+            Ahat = repmat(Ahat(:,:,1),[1,1,M]);
+            break
+        end
     end
 end
 
@@ -349,43 +383,47 @@ end
 %-------------------------------------------------------------------------%
 
 
-Qhat = zeros(r,r,M);
+if skip.Q
+    Qhat = fixed.Q;
+else
+    Qhat = zeros(r,r,M);
 
-% Unconstrained estimate  
-for j = 1:M
-    if groupsize(j) > 0
-        % Residual covariance
-        XXj = XX(:,:,j);
-        YXj = YX(:,:,j);
-        YYj = YY(:,:,j);
-        A_j = Ahat(:,:,j);
-        Q_j =  YYj - YXj * A_j' - A_j * YXj' + A_j * XXj * A_j';
-        Qhat(:,:,j) = diag(diag(Q_j)/groupsize(j));
-    elseif any(S == j)
-        Qhat(:,:,j) = diag(var(xhat(:,S == j),1,2));
+    % Unconstrained estimate  
+    for j = 1:M
+        if groupsize(j) > 0
+            % Residual covariance
+            XXj = XX(:,:,j);
+            YXj = YX(:,:,j);
+            YYj = YY(:,:,j);
+            A_j = Ahat(:,:,j);
+            Q_j =  YYj - YXj * A_j' - A_j * YXj' + A_j * XXj * A_j';
+            Qhat(:,:,j) = diag(diag(Q_j)/groupsize(j));
+        elseif any(S == j)
+            Qhat(:,:,j) = diag(var(xhat(:,S == j),1,2));
+        end
     end
-end
-if equal.Q
-    if sum(groupsize) > 0
-        Qhat = reshape(Qhat,r^2,M) * (groupsize / sum(groupsize));
-        Qhat = reshape(Qhat,r,r,M);
-    else
-        Qhat = repmat(diag(var(xhat,1,2)),1,1,M);
+    if equal.Q
+        if sum(groupsize) > 0
+            Qhat = reshape(Qhat,r^2,M) * (groupsize / sum(groupsize));
+            Qhat = reshape(Qhat,r,r,M);
+        else
+            Qhat = repmat(diag(var(xhat,1,2)),1,1,M);
+        end
     end
-end
-        
-% Apply fixed coefficient constraints and regularize Q 
-if ~isempty(fixed.Q)
-    idx = ~isnan(fixed.Q);
-    Qhat(idx) = fixed.Q(idx);
-end
-for j = 1:M
-    Qhat(:,:,j) = regfun(Qhat(:,:,j),abstol,reltol);
-end
-if ~isempty(fixed.Q)
-    Qhat(idx) = fixed.Q(idx);
-end
 
+    % Apply fixed coefficient constraints and regularize Q 
+    if ~isempty(fixed.Q)
+        idx = ~isnan(fixed.Q);
+        Qhat(idx) = fixed.Q(idx);
+    end
+    for j = 1:M
+        Qhat(:,:,j) = regfun(Qhat(:,:,j),abstol,reltol);
+    end
+    if ~isempty(fixed.Q)
+        Qhat(idx) = fixed.Q(idx);
+    end
+end 
+    
 % Reshape A
 Ahat = reshape(Ahat,[r,r,p,M]);
 
@@ -397,27 +435,39 @@ Ahat = reshape(Ahat,[r,r,p,M]);
 %-------------------------------------------------------------------------%
 
 
-Pihat = zeros(M,1);
-Pihat(S(1)) = 1;
-if ~isempty(fixed.Pi)
-    idx = ~isnan(fixed.Pi);
-    Pihat(idx) = fixed.Pi(idx);
-end
-    
-Zhat = zeros(M);
-for i=1:M
-    for j=1:M
-        Zhat(i,j) = sum(S(1:T-1) == i & S(2:T) == j);
-    end
-    if any(Zhat(i,:) > 0)
-        Zhat(i,:) = Zhat(i,:) / sum(Zhat(i,:));
-    else
-        Zhat(i,i) = 1;
+if skip.Pi
+    Pihat = fixed.Pi;
+else
+    Pihat = zeros(M,1);
+    Pihat(S(1)) = 1;
+    if ~isempty(fixed.Pi)
+        idx = ~isnan(fixed.Pi);
+        Pihat(idx) = fixed.Pi(idx);
     end
 end
-if ~isempty(fixed.Z)
-    idx = ~isnan(fixed.Z);
-    Zhat(idx) = fixed.Z(idx);
+
+if skip.Z
+    Zhat = fixed.Z;
+else
+    Zhat = zeros(M);
+    for i=1:M
+        for j=1:M
+            Zhat(i,j) = sum(S(1:T-1) == i & S(2:T) == j);
+        end
+        if any(Zhat(i,:) > 0)
+            Zhat(i,:) = Zhat(i,:) / sum(Zhat(i,:));
+        else
+            Zhat(i,i) = 1;
+        end
+    end
+    if ~isempty(fixed.Z)
+        idx = ~isnan(fixed.Z);
+        Zhat(idx) = fixed.Z(idx);
+    end
 end
+
+
+pars = struct('A',Ahat, 'C', Chat, 'Q', Qhat, 'R', Rhat, 'mu', muhat, ...
+    'Sigma', Sigmahat, 'Pi', Pihat, 'Z', Zhat);
 
 

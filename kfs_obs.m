@@ -1,6 +1,8 @@
-function [xf,xs,x0,P0,Loglik,sum_CP,sum_MP,sum_Mxy,sum_P,sum_Pb] = ...
-    kfs_obs(y,M,p,r,A,C,Q,R,S,mu,Sigma,safe,abstol,reltol)
+      function [xf,xs,x0,P0,Loglik,sum_CP,sum_MP,sum_Mxy,sum_P,sum_Pb] = ...
+    kfs_obs(y,M,p,r,S,pars,safe,abstol,reltol)
 
+
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; Sigma = pars.Sigma; 
 
 % Model dimensions
 [N,T] = size(y);
@@ -13,10 +15,10 @@ function [xf,xs,x0,P0,Loglik,sum_CP,sum_MP,sum_Mxy,sum_P,sum_Pb] = ...
     
 % Mask for predictive covariance matrix
 tmp = zeros(p*r); tmp(1:r,1:r) = 1;
-mask_Vp = (kron(eye(M),tmp) == 1);
+mask_Vp = logical(kron(eye(M),tmp));
 
 % Mask for filtering covariance matrix
-mask_Vf = (kron(eye(M),ones(p*r)) == 1);
+mask_Vf = logical(kron(eye(M),ones(p*r)));
 
 % Reshape parameter estimates
 Atmp = kron(eye(M),diag(ones((p-1)*r,1),-r));
@@ -43,6 +45,8 @@ C = Ctmp;       % size N x Mpr x M
 Q = Qtmp;       % size Mpr x Mpr
 mu = mutmp(:);  % size Mpr x 1
 Sigma = Sigmatmp; % size Mpr x Mpr
+
+
 
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
@@ -74,7 +78,7 @@ indt(1:r,:) = 1;
 indt = find(indt);
 
 % Constant for likelihood calculation
-cst = -N * log(2*pi);
+cst = -N/2 * log(2*pi);
 
 
 % FILTERING LOOP
@@ -87,7 +91,7 @@ for t = 1:T
     else
         xpt = A * xf(:,t-1); 
         Vpt = A * Vft * A.' + Q; % here Vft = V(X(t-1)|y(1:t-1))
-        Vpt = 0.5 * (Vpt + Vpt.');
+%         Vpt = 0.5 * (Vpt + Vpt.');
     end
     xp(:,t) = xpt(indt);
     Vp(:,t) = Vpt(mask_Vp);
@@ -97,29 +101,30 @@ for t = 1:T
     e = y(:,t) - Ct * xpt;
     CVp = Ct * Vpt; % Ct * V(x(t)|y(1:t-1)) 
     Ve = CVp * Ct.' + R; % Variance of prediction error         
-    Ve = 0.5 * (Ve+Ve.');
 
     % Check that variance matrix is positive definite and well-conditioned
     if safe
         Ve = regfun(Ve,abstol,reltol);
     end
            
-    % Filtering update 
-    K = (CVp.') / Ve; % Kalman gain matrix
-    xf(:,t) = xpt + K * e; % E(X(t)|y(1:t))
-    Vft = Vpt - K * CVp; % V(X(t)|y(1:t))
-    Vf(:,t) = Vft(mask_Vf);
-    
-    % Log-likelihood P(y(t)|y(1:t-1))
-    try 
-        % Choleski decomposition
-        L = chol(Ve,'lower'); 
-        Loglik(t) = cst - sum(log(diag(L))) - 0.5 * norm(L\e)^2;
-%        Loglik(t) = mvnpdf(e',[],Ve); slower
-    catch
+    % Choleski decomposition
+    [Lchol,err] = chol(Ve,'lower');             
+    if ~err % case: Ve definite positive
+        LinvCVp = Lchol\CVp;
+        Linve = Lchol\e;
+        % Log-Likelihood 
+        Loglik(t) = cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2);
+        % Filtering update
+        xf(:,t) = xpt + LinvCVp.' * Linve;   % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+        Vft = Vpt - (LinvCVp.' * LinvCVp);   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
+        Vf(:,t) = Vft(mask_Vf);
+    else
         Loglik(t) = -Inf;
+        xf(:,t) = xpt;
+        Vf(:,t) = Vpt(mask_Vf);
     end
-end 
+    
+end
 
 % Replace infinite or undefined values of log-likelihood by very small
 % value
@@ -145,6 +150,7 @@ mask_Mr = (kron(eye(M),ones(r)) == 1);
 % Initialize smoother at time T
 xst = xf(:,T);
 xs(:,T) = xst(indt); 
+Vft = zeros(M*p*r);
 Vst = zeros(M*p*r);     % diag(V(X(T,j)|y(1:T))), j=1:M
 Vst(mask_Vf) = Vf(:,T);
 Vptp1 = zeros(M*r);
@@ -168,7 +174,7 @@ for t=T-1:-1:1
     xptp1 = xp(:,t+1);
     Vptp1(mask_Mr) = Vp(:,t+1); % diag(V(x(t+1,j)|y(1:t))), j=1:M
     xft = xf(:,t);
-    Vft(mask_Vf) = Vf(:,t);     % diag(V(X(t+1,j)|y(1:t))), j=1:M
+    Vft(mask_Vf) = Vf(:,t);     % diag(V(X(t,j)|y(1:t))), j=1:M
     
     % Kalman smoother gain J(t) 
     % J(t) = V(X(t)|y(1:t)) * A' * V(x(t+1)|y(1:t))^{-1}
@@ -233,8 +239,9 @@ end
 % sum(t:S(t)=j) E(x(t,j)|y(1:T))y(t)', j=1:M
 sum_Mxy = zeros(r,N,M);
 for j = 1:M
-    idx = (S == j);
-    sum_Mxy(:,:,j) = squeeze(xs(:,j,idx)) * y(:,idx).';
+    idx = find(S == j);
+    Tj = numel(idx);
+    sum_Mxy(:,:,j) = reshape(xs(:,j,idx),r,Tj) * y(:,idx).';
 end
 
 % sum(t=2:T) E(x(t,j)x(t,j)'|y(1:T)), j=1:M
@@ -247,3 +254,4 @@ sum_Pb = reshape(sum_Pb(mask_Vf),[p*r,p*r,M]);
 
 
 end % END FUNCTION
+

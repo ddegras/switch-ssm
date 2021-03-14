@@ -1,5 +1,5 @@
 function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-    skfs_dyn(y,M,p,r,pars,beta,safe,abstol,reltol)
+    skfs_p1_dyn(y,M,~,r,pars,beta,safe,abstol,reltol)
 
 %--------------------------------------------------------------------------
 %
@@ -12,7 +12,7 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 % 
 % USAGE
 % [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-%     skfs_dyn(y,M,p,r,pars,beta,safe,abstol,reltol)
+%     skfs_p1_dyn(y,M,~,r,A,C,Q,R,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
 %
 % REFERENCES
 % C. J. Kim (1994) "Dynamic Linear Models with Markov-Switching", Journal of
@@ -21,13 +21,15 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 %
 %--------------------------------------------------------------------------
 
+% Model dimensions
+[N,T] = size(y); 
+p = size(pars.A,2) / size(pars.A,1);
+% Size of 'small' state vector x(t): r
+% Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
+
 A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
 Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
 
-% Model dimensions
-[N,T] = size(y); 
-% Size of 'small' state vector x(t): r
-% Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
 
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
@@ -40,10 +42,10 @@ warning('off','MATLAB:illConditionedMatrix');
 xp = zeros(r,M,M,T);	% E(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)  @@@@ reduce memory footprint
 Vp = zeros(r,r,M,M,T); % V(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)   @@@@ reduce memory footprint
 xf = zeros(r,T);      % E(x(t)|y(1:t))
-xf1 = zeros(p*r,M,T);	% E(X(t)|y(1:t),S(t)=j)
-xf2 = zeros(p*r,M,M);   % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)
-Vf1 = zeros(p*r,p*r,M,T); % V(X(t)|y(1:t),S(t)=j)
-Vf2 = zeros(p*r,p*r,M,M); % V(X(t)|y(1:t),S(t-1)=i,S(t)=j)
+xf1 = zeros(r,M,T);	% E(X(t)|y(1:t),S(t)=j)
+xf2 = zeros(r,M,M);   % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)
+Vf1 = zeros(r,r,M,T); % V(X(t)|y(1:t),S(t)=j)
+Vf2 = zeros(r,r,M,M); % V(X(t)|y(1:t),S(t-1)=i,S(t)=j)
 % CVf2 = zeros(r,r,M,M); % Cov(x(t),x(t-1)|y(1:t),S(t-1)=i,S(t)=j)
 Lp = zeros(M,M);        % P(y(t)|y(1:t-1),S(t)=j,S(t-1)=i)
 Mf = zeros(M,T);        % P(S(t)=j|y(1:t))
@@ -51,33 +53,27 @@ Mf = zeros(M,T);        % P(S(t)=j|y(1:t))
 
 % Declare Kalman smoothing variables
 xs = zeros(r,T);      % E(x(t)|y(1:T))
-xs2 = zeros(p*r,M,M);   % E(X(t)|y(1:T),S(t)=j,S(t+1)=k)
-Vs2 = zeros(p*r,p*r,M,M); % V(X(t)|y(1:T),S(t)=j,S(t+1)=k)
-CVs1 = zeros(r,p*r,M);  % Cov(x(t+1),X(t)|y(1:T),S(t+1)=k) 
-CVs2 = zeros(r,p*r,M,M); % Cov(x(t+1),X(t)|y(1:t),S(t)=j,S(t+1)=k)
+xs2 = zeros(r,M,M);   % E(X(t)|y(1:T),S(t)=j,S(t+1)=k)
+Vs2 = zeros(r,r,M,M); % V(X(t)|y(1:T),S(t)=j,S(t+1)=k)
+CVs1 = zeros(r,r,M);  % Cov(x(t+1),X(t)|y(1:T),S(t+1)=k) 
+CVs2 = zeros(r,r,M,M); % Cov(x(t+1),X(t)|y(1:t),S(t)=j,S(t+1)=k)
 Ms = zeros(M,T);        % P(S(t)=j|y(1:T))
 
 % Other outputs
 sum_Ms2 = zeros(M,M);   % sum(t=2:T) P(S(t-1)=i,S(t)=j|y(1:T))
-sum_MCP = zeros(r,p*r,M); % sum(t=2:T) P(S(t)=j|y(1:T)) * E(x(t)X(t-1)'|S(t)=j,y(1:T))
+sum_MCP = zeros(r,r,M); % sum(t=2:T) P(S(t)=j|y(1:T)) * E(x(t)X(t-1)'|S(t)=j,y(1:T))
 sum_MP = zeros(r,r,M);  % sum(t=2:T) P(S(t)=j|y(1:T)) * E(x(t)x(t)'|S(t)=j,y(1:T))
-sum_MPb = zeros(p*r,p*r,M); % sum(t=2:T) P(S(t)=j|y(1:T)) * E(X(t-1)X(t-1)'|S(t)=j,y(1:T))
+sum_MPb = zeros(r,r,M); % sum(t=2:T) P(S(t)=j|y(1:T)) * E(X(t-1)X(t-1)'|S(t)=j,y(1:T))
 % sum_P = zeros(r,r)    % sum(t=1:T) E(x(t)x(t)'|S(t)=j,y(1:T))
-MP0 = zeros(p*r,p*r,M); % P(S(1)=j|y(1:T)) * E(X(1)X(1)'|S(t)=j,y(1:T))
-Mx0 = zeros(p*r,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
+MP0 = zeros(r,r,M); % P(S(1)=j|y(1:T)) * E(X(1)X(1)'|S(t)=j,y(1:T))
+Mx0 = zeros(r,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
 
 
 
 % Auxiliary quantities
 cst = - N / 2 * log(2*pi);
 
-% Expand matrices
-Abig = repmat(diag(ones((p-1)*r,1),-r),[1,1,M]);
-Abig(1:r,:,:) = A;
-% Cbig = zeros(N,p*r);
-% Cbig(:,1:r) = C;
-Qbig = zeros(p*r,p*r,M);
-Qbig(1:r,1:r,:) = Q;
+
 
 
 %-------------------------------------------------------------------------%
@@ -88,17 +84,17 @@ Qbig(1:r,1:r,:) = Q;
 % Initialize filter
 Acc = zeros(M,1);
 for j=1:M
-    Sigma_j = kron(eye(p),Sigma(:,:,j));
     e = y(:,1) - C * mu(:,j);
-    Ve = C * Sigma_j(1:r,1:r) * C.' + R;
+    Sigma_j =  Sigma(:,:,j);
+    Ve = C * Sigma_j * C.' + R;
     if safe
         Ve = regfun(Ve,abstol,reltol);
     end
     Lchol = chol(Ve,'lower');            
-    LinvCVp = (Lchol\C) * Sigma_j(1:r,:);
+    LinvCVp = (Lchol\C) * Sigma_j;
     Linve = Lchol\e;
     Acc(j) = Pi(j) * exp(cst - sum(log(diag(Lchol))) - 0.5 * sum(Linve.^2));
-    xf1(:,j,1) = repmat(mu(:,j),p,1) + LinvCVp.' * Linve; 
+    xf1(:,j,1) = mu(:,j) + LinvCVp.' * Linve; 
     Vf1(:,:,j,1) = Sigma_j - (LinvCVp.' * LinvCVp);      
 end
 
@@ -106,7 +102,7 @@ if all(Acc == 0)
     Acc = eps * ones(M,1);
 end
 Mf(:,1) = Acc / sum(Acc);   % P(S(1)=j|y(1))
-xf(:,1) = xf1(1:r,:,1) * Mf(:,1); % E(x(1)|y(1))
+xf(:,1) = xf1(:,:,1) * Mf(:,1); % E(x(1)|y(1))
 L = log(sum(Acc));          % log(P(y(1)))
 
 Vhat = zeros(p*r,p*r,M);
@@ -119,17 +115,17 @@ for t=2:T
         for j=1:M      
             
             % Prediction of x(t)
-            xp_ij = Abig(:,:,j) * xf1(:,i,t-1); 
-            Vp_ij = Abig(:,:,j) * Vf1(:,:,i,t-1) * Abig(:,:,j).' + Qbig(:,:,j); 
+            xp_ij = A(:,:,j) * xf1(:,i,t-1); 
+            Vp_ij = A(:,:,j) * Vf1(:,:,i,t-1) * A(:,:,j).' + Q(:,:,j); 
          
             % Store predictions
-            xp(:,i,j,t) = xp_ij(1:r);
-            Vp(:,:,i,j,t) = Vp_ij(1:r,1:r);
+            xp(:,i,j,t) = xp_ij;
+            Vp(:,:,i,j,t) = Vp_ij;
 
             % Prediction error for y(t)
-            e = y(:,t) - C * xp_ij(1:r); 
-            CVp = C * Vp_ij(1:r,:);
-            Ve = CVp(:,1:r) * C.' + R; % Variance of prediction error
+            e = y(:,t) - C * xp_ij; 
+            CVp = C * Vp_ij;
+            Ve = CVp * C.' + R; % Variance of prediction error
 %             Ve = 0.5 * (Ve+Ve.');
             % Check that variance matrix is positive definite and well-conditioned
             if safe
@@ -189,7 +185,7 @@ for t=2:T
     end
   
     % Collapse M distributions (X(t)|S(t),y(1:t)) to 1 (X(t)|y(1:t))
-    xf(:,t) = xf1(1:r,:,t) * Mf(:,t); % E(X(t)|y(1:t))
+    xf(:,t) = xf1(:,:,t) * Mf(:,t); % E(X(t)|y(1:t))
   
 end % end t loop  
   
@@ -207,14 +203,14 @@ end % end t loop
 % Initialize smoother at time T
 Ms(:,T) = Mf(:,T);
 xs(:,T) = xf(:,T);
-xsb = zeros(p*r,M); 
+xsb = zeros(r,M); 
 xs1 = xf1(:,:,T);
 Vs1 = Vf1(:,:,:,T);
-MCP = zeros(r,p*r,M); 
+MCP = zeros(r,r,M); 
 MP = zeros(r,r,M); 
-MPb = zeros(p*r,p*r,M);
+MPb = zeros(r,r,M);
 for j = 1:M
-    sum_MP(:,:,j) = Ms(j,T) * (Vs1(1:r,1:r,j) + (xs1(1:r,j) * xs1(1:r,j).'));
+    sum_MP(:,:,j) = Ms(j,T) * (Vs1(:,:,j) + (xs1(:,j) * xs1(:,j).'));
 end
 Vsb = zeros(p*r,p*r,M);
 CVhat = zeros(r,p*r,M); 
@@ -222,8 +218,8 @@ CVhat = zeros(r,p*r,M);
 for t = T-1:-1:1
     
     % Store relevant vectors/matrices from previous iteration
-    xs1tp1 = xs1(1:r,:);        % E(x(t+1)|S(t+1),y(1:T))
-    Vs1tp1 = Vs1(1:r,1:r,:);    % V(x(t+1)|S(t+1),y(1:T))
+    xs1tp1 = xs1;        % E(x(t+1)|S(t+1),y(1:T))
+    Vs1tp1 = Vs1;    % V(x(t+1)|S(t+1),y(1:T))
 
     % Predicted and filtered mean and variance (for faster access)
     xptp1 = xp(:,:,:,t+1);
@@ -304,16 +300,16 @@ for t = T-1:-1:1
     end
 
     % Collapse M distributions to 1 
-    xs(:,t) = xs1(1:r,:) * Ms(:,t); % E(X(t)|y(1:T))
+    xs(:,t) = xs1 * Ms(:,t); % E(X(t)|y(1:T))
         
     % Required quantities for M step 
     for j=1:M
         % P(S(t)=j|y(1:T)) * E(x(t)x(t)'|S(t)=j,y(1:T))
-        MP(:,:,j) = Ms(j,t) * (Vs1(1:r,1:r,j) + (xs1(1:r,j) * xs1(1:r,j).'));   
+        MP(:,:,j) = Ms(j,t) * (Vs1(:,:,j) + (xs1(:,j) * xs1(:,j).'));   
         % P(S(t+1)=j|y(1:T)) * E(X(t)X(t)'|S(t+1)=j,y(1:T))
         MPb(:,:,j) = Ms(j,t+1) * (Vsb(:,:,j) + (xsb(:,j) * xsb(:,j).')); 
         % P(S(t)=j|y(1:T)) * E(x(t+1)X(t)'|S(t+1)=j,y(1:T))
-        MCP(:,:,j) = Ms(j,t+1) * (CVs1(1:r,:,j) + xs1tp1(1:r,j) * xsb(:,j).');    
+        MCP(:,:,j) = Ms(j,t+1) * (CVs1(:,:,j) + xs1tp1(:,j) * xsb(:,j).');    
     end
     if t > 1
         sum_MP = sum_MP + MP;

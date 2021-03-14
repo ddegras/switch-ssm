@@ -1,6 +1,5 @@
-function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,... 
-    fixed,skip,equal,eps,ItrNo,beta0,betarate,safe,abstol,reltol,verbose,scale] = ... 
-    preproc_dyn(M,N,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale)
+function [outpars,control,equal,fixed,scale,skip] = ... 
+    preproc_dyn(M,N,p,r,pars,control,equal,fixed,scale)
 
 %--------------------------------------------------------------------------    
 %
@@ -15,9 +14,8 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,...
 % initial estimates to suitable dimensions for the EM algorithm.
 %
 % USAGE
-% [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,fixed,skip,equal,...
-%   eps,ItrNo,beta0,betarate,safe,abstol,reltol,verbose,scale] = ... 
-%     preproc_dyn(M,N,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale)
+% [outpars,control,equal,fixed,skip] = ... 
+%     preproc_dyn(M,N,p,r,pars,control,equal,fixed,scale)
 %
 %--------------------------------------------------------------------------    
 
@@ -25,6 +23,8 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,...
 % Dimension of original state vector x(t) = r
 % Dimension of expanded state vector X(t)=(x(t),...,x(t-p+1)) = p * r
 parname = {'A','C','Q','R','mu','Sigma','Pi','Z'};    
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
 
 % Subfunction to compare dimension attributes
 function out = identical(x,y,drop1)
@@ -37,6 +37,69 @@ end
 out = numel(x) == numel(y) && all(x == y);
 end
     
+
+
+%-------------------------------------------------------------------------%    
+%                Equality constraints on model parameters                 %
+%-------------------------------------------------------------------------%    
+
+
+% Default constraints
+equal0 = struct('A',false,'Q',false,'mu',true,'Sigma',true);
+
+% Override with user-specified constraints if any
+if isstruct(equal)
+    fnames = fieldnames(equal0);
+    for i = 1:numel(fnames)
+        name = fnames{i};
+        if isfield(equal,name)
+            equal0.(name) = equal.(name);
+        end
+    end
+end
+equal = equal0;
+
+
+
+%-------------------------------------------------------------------------%    
+%                     Optional control parameters                         %
+%-------------------------------------------------------------------------%    
+
+
+% Default values
+control0 = struct('eps',1e-7,'ItrNo',1000,'beta0',1,'betarate',1,...
+    'safe',false,'abstol',1e-8,'reltol',1e-8,'verbose',true);
+
+% Override with user-specified control parameters if any 
+if isstruct(control)
+    fnames = fieldnames(control0);
+    for i = 1:numel(fnames)
+        name = fnames{i};
+        if isfield(control,name)
+            control0.(name) = control.(name);
+        end
+    end
+end
+control = control0;
+
+abstol = control.abstol;
+reltol = control.reltol;
+beta0 = control.beta0;
+betarate = control.betarate;
+eps = control.eps;
+
+if (abstol <= 0 || reltol <= 0) 
+    error('Arguments ''abstol'' and ''retol'' must be stricly positive.')
+end
+if (beta0 <= 0 || beta0 > 1)
+    error('Argument ''beta0'' must be in (0,1].')
+end
+if (betarate < 1)
+    error('Argument ''betarate'' must be in [1,Inf).')
+end
+
+
+
 
 %-------------------------------------------------------------------------%    
 %         Check dimensions of parameters and replicate as needed          %
@@ -154,75 +217,21 @@ par = {A,C,Q,R,mu,Sigma,Pi,Z};
 
 
 %-------------------------------------------------------------------------%    
-%                     Optional control parameters                         %
-%-------------------------------------------------------------------------%    
-
-
-% Default values
-control0 = struct('eps',1e-7,'ItrNo',1000,'beta0',1,'betarate',1,...
-    'safe',true,'abstol',1e-8,'reltol',1e-8,'verbose',true);
-
-% Override with user-specified control parameters if any 
-if isstruct(control)
-    fnames = fieldnames(control0);
-    for i = 1:numel(fnames)
-        name = fnames{i};
-        if isfield(control,name)
-            control0.(name) = control.(name);
-        end
-    end
-end
-control = control0;
-vals = struct2cell(control);
-[eps,ItrNo,beta0,betarate,safe,abstol,reltol,verbose] = vals{:};
-if (abstol <= 0 || reltol <= 0) 
-    error('Arguments ''abstol'' and ''retol'' must be stricly positive.')
-end
-if (beta0<0 || beta0>1 || betarate<0 || betarate>1)
-    error('Arguments ''beta0'' and ''betarate'' must be in (0,1].')
-end
-
-
-
-%-------------------------------------------------------------------------%    
-%                Equality constraints on model parameters                 %
-%-------------------------------------------------------------------------%    
-
-
-% Default constraints
-equal0 = struct('A',false,'Q',false,'mu',true,'Sigma',true);
-
-% Override with user-specified constraints if any
-if isstruct(equal)
-    fnames = fieldnames(equal0);
-    for i = 1:numel(fnames)
-        name = fnames{i};
-        if isfield(equal,name)
-            equal0.(name) = equal.(name);
-        end
-    end
-end
-equal = equal0;
-
-
-
-
-%-------------------------------------------------------------------------%    
 %                 Check symmetry of Q, R, and Sigma                       %
 %-------------------------------------------------------------------------%    
 
 
 for j=1:M
     if ~issymmetric(Q(:,:,j))
-        error('Q(:,:,%d) is not symmetric.',j)
+        error('Q(:,:,%d) must be symmetric.',j)
     end    
     if ~issymmetric(Sigma(:,:,j))
-        error('Sigma(:,:,%d) is not symmetric.',j)
+        error('Sigma(:,:,%d) must be symmetric.',j)
     end
 end
 
 if ~issymmetric(R)
-    error('''R'' is not symmetric.')
+    error('''R'' must be symmetric.')
 end
 
 
@@ -232,19 +241,19 @@ end
 %-------------------------------------------------------------------------%    
 
 if ~all(Pi >= 0 & Pi <= 1)
-    error('Values of ''Pi'' not all in [0,1].')
+    error('Values of ''Pi'' must be in [0,1].')
 end
 
 if ~all(Z(:) >= 0 & Z(:) <= 1)
-    error('Values of ''Z'' not all in [0,1].')
+    error('Values of ''Z'' must be in [0,1].')
 end
 
 if ~(abs(sum(Pi)-1) <= 2*eps)
-    error('Values of ''Pi'' do not sum up to 1.')
+    error('Values of ''Pi'' must add up to 1.')
 end
 
 if ~all(abs(sum(Z,2)-1) <= eps)
-    error('Rows of ''Z'' do not all sum up to 1.')
+    error('Rows of ''Z'' must add up to 1.')
 end
 
 
@@ -263,8 +272,8 @@ if isstruct(scale)
 end
 scale = scale0;
 
-if scale.A <= 0 || scale.A >= 1
-    error('''scale.A'' must be in (0,1).')
+if scale.A <= 0
+    error('''scale.A'' must be positive.')
 end
 
 if ~isempty(scale.C) && scale.C <= 0
@@ -283,6 +292,8 @@ end
 % constraints 
 % * Expand fixed coefficients specification  w.r.t. equality constraints as
 % needed
+% * For each A(j), check that either: (i) there are no fixed coefficients, 
+% or (ii) all coefficients are fixed, or (iii) all fixed coefficients are zero 
 % * Check that for covariance matrices, either all coefficients are
 % fixed, all are free, or a diagonal structure is specified
 % * Check that for covariance matrices, fixed coefficients constraints are
@@ -347,6 +358,20 @@ for i = 1:8
 end
 fixed = fixed0;
 
+
+% Check fixed coefficients in A %@@@@@@@@
+if ~skip.A && ~isempty(fixed.A)
+    Atmp = NaN(N*N*p,M);
+    Atmp(fixed.A(:,1)) = fixed.A(:,2);
+    test1 = all(~isnan(Atmp));
+    test2 = all(isnan(Atmp) | Atmp == 0);
+    assert(all(test1 | test2), ... 
+        ['For each regime j, A(j) must either be entirely free, entirely', ...
+        'fixed, or have all its fixed coefficients set to zero.'])
+end
+
+
+
 % For covariance matrices Q, R, and Sigma, check (i) compatibility of fixed
 % coefficient constraints and symmetry and (ii) that either all
 % coefficients are fixed, all are free, or a diagonal structure is
@@ -389,43 +414,47 @@ for i = 1:2
     % Test for diagonal structure
     temp = NaN(r,r,M);
     temp(fixed.(name)(:,1)) = fixed.(name)(:,2);
-    offdiag = find(repmat(eye(r),1,1,M) == 0);
-    test = all(isnan(temp(~offdiag))) && all(temp(offdiag) == 0); 
-    if ~test
-        error(msg2,name)
-    end  
+    offdiag = (eye(r) == 0);
+    for j = 1:M
+        tempj = temp(:,:,j);
+        test = all(~isnan(tempj(:))) || all(isnan(tempj(:))) || ...
+            all(tempj(offdiag) == 0);  
+        assert(test, sprintf(['%s(%d) must either be entirely fixed, ',... 
+        'entirely free, or have all off-diagonal terms set to zero.'],name,j));  
+    end
 end        
+clear temp tempj
 
 % Check compatibility of fixed coefficient constraints with box constraints
 % and unit sum constraints for Pi and Z
 if ~isempty(fixed.Pi)
     if ~skip.Pi
-        error('Coefficients of ''Pi'' must be either all fixed or all free.')
+        error('Coefficients of ''Pi'' must either be all free or all fixed.')
     end
     vals = fixed.Pi(:,2);
     if any(vals < 0) || any(vals > 1)
-        error('Some fixed coefficients of ''Pi'' are outside of [0,1].')
+        error('Fixed coefficients of ''Pi'' must be in [0,1].')
     end
     if abs(sum(vals)-1) > eps
-        error('Fixed coefficients of ''Pi'' do not sum up to 1.')
+        error('Fixed coefficients of ''Pi'' do not add up to 1.')
     end
 end
 
 if ~isempty(fixed.Z)
-    if ~all(fixed.Z(:,2) >= 0 && fixed.Z(:,2) <= 1)
-        error('Some fixed coefficients of ''Z'' are outside of [0,1].')
+    if ~all(fixed.Z(:,2) >= 0 & fixed.Z(:,2) <= 1)
+        error('Fixed coefficients of ''Z'' must be in [0,1].')
     end
     Ztmp = NaN(M);
     Ztmp(fixed.Z(:,1)) = fixed.Z(:,2);
     test = ismember(sum(isnan(Ztmp),2),[0,M]);
     if ~all(test)
-        error(['For each row of ''Z'', coefficients  must either be ', ...
+        error(['For each row of ''Z'', coefficients must either be ', ...
             'all fixed or all free.'])
     end
     Ztmp = rmmissing(Ztmp);
     test = (abs(sum(Ztmp,2) - 1) <= eps);
     if ~all(test)
-        error('Rows of fixed coefficients in ''Z'' do not sum up to 1.')
+        error('Some rows of fixed coefficients in ''Z'' do not add up to 1.')
     end
 end
 
@@ -503,7 +532,7 @@ if ~isempty(scale.C)
     end
 end
 
-clear param name rowmin rowmax
+clear param name rowmin rowmax temp tempj
 
 
 
@@ -514,14 +543,7 @@ clear param name rowmin rowmax
 %-------------------------------------------------------------------------%    
 
 
-Ahat = reshape(A,[r,p*r,M]);
-Chat = C;
-Qhat = Q;
-Rhat = R;
-muhat = mu;
-Sigmahat = Sigma;
-Pihat = Pi;
-Zhat = Z;
+A = reshape(A,[r,p*r,M]);
 
 
 
@@ -532,33 +554,35 @@ Zhat = Z;
 
 
 for j=1:M
-    Qhat(:,:,j) = regfun(Qhat(:,:,j),abstol,reltol);
+    Q(:,:,j) = regfun(Q(:,:,j),abstol,reltol);
     if equal.Q
-        Qhat = repmat(Qhat(:,:,1),1,1,M);
+        Q = repmat(Q(:,:,1),1,1,M);
         break
     end
 end
 if ~isempty(fixed.Q)
-    Qhat(fixed.Q(:,1)) = fixed.Q(:,2);
+    Q(fixed.Q(:,1)) = fixed.Q(:,2);
 end
 
-Rhat = regfun(Rhat,abstol,reltol);
+R = regfun(R,abstol,reltol);
 if ~isempty(fixed.R)
-    Rhat(fixed.R(:,1)) = fixed.R(:,2);
+    R(fixed.R(:,1)) = fixed.R(:,2);
 end
 
 for j=1:M
-    Sigmahat(:,:,j) = regfun(Sigmahat(:,:,j),abstol,reltol);
+    Sigma(:,:,j) = regfun(Sigma(:,:,j),abstol,reltol);
     if equal.Sigma
-        Sigmahat = repmat(Sigmahat(:,:,1),1,1,M);
+        Sigma = repmat(Sigma(:,:,1),1,1,M);
         break
     end
 end
 if ~isempty(fixed.Sigma)
-    Sigmahat(fixed.Sigma(:,1)) = fixed.Sigma(:,2);
+    Sigma(fixed.Sigma(:,1)) = fixed.Sigma(:,2);
 end
 
 
+outpars = struct('A', A, 'C', C, 'Q', Q, 'R', R, 'mu', mu, 'Sigma', Sigma, ...
+    'Pi', Pi, 'Z', Z);
 
 
 

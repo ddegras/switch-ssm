@@ -1,4 +1,4 @@
-function [Mf,Ms,L,sum_Ms2] = skfs_var(x,M,p,A,Q,mu,Sigma,Pi,Z,beta)
+function [Mf,Ms,L,sum_Ms2] = skfs_var(x,M,p,pars,beta)
 
 %--------------------------------------------------------------------------
 %
@@ -14,8 +14,7 @@ function [Mf,Ms,L,sum_Ms2] = skfs_var(x,M,p,A,Q,mu,Sigma,Pi,Z,beta)
 % with x(1),...,x(p) independent given S(1),...,S(p)
 % 
 % USAGE
-% [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-%     skfs_var(y,M,p,r,A,Q,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
+% [Mf,Ms,L,sum_Ms2] = skfs_var(x,M,p,pars,beta)
 %
 % REFERENCES
 % K. P. Murphy (1998) "Switching Kalman Filters", Technical Report
@@ -24,13 +23,10 @@ function [Mf,Ms,L,sum_Ms2] = skfs_var(x,M,p,A,Q,mu,Sigma,Pi,Z,beta)
 
 % Model dimensions
 [r,T] = size(x); 
-% Size of 'small' state vector x(t): r
-% Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
 
-% Shrink input array A if needed
-if size(A,1) == p*r
-    A = A(1:r,:,:); 
-end
+A = reshape(pars.A,r,r,p,M); Q = pars.Q; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
+Zt = Z';
 
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
@@ -40,9 +36,29 @@ warning('off','MATLAB:illConditionedMatrix');
 Mf = zeros(M,T);        % P(S(t)=j|x(1:t))
 Ms = zeros(M,T);        % P(S(t)=j|x(1:T))
 sum_Ms2 = zeros(M,M);   % sum(t=2:T) P(S(t-1)=i,S(t)=j|y(1:T))
+if M == 1
+    Mf = ones(1,T);
+    Ms = ones(1,T);
+    sum_Ms2 = T-1;
+end
 
+%  P(x(t)|S(t)=j)
+Lp = zeros(M,T);
 
+% Log-likelihood log(P(x(t)|x(1:t-1)))
+L = zeros(1,T);  
 
+% Cholesky decomposition of Q(j)
+cholQ = zeros(r,r,M);
+for j = 1:M
+    cholQ(:,:,j) = chol(Q(:,:,j),'lower');
+end
+
+% Constants involving determinant of Q(j)
+logSqrtDetQ = zeros(M,1);
+for j = 1:M
+    logSqrtDetQ(j) = sum(log(diag(cholQ(:,:,j)))) + (r/2) * log((2*pi));
+end
 
 
 %-------------------------------------------------------------------------%
@@ -50,73 +66,82 @@ sum_Ms2 = zeros(M,M);   % sum(t=2:T) P(S(t-1)=i,S(t)=j|y(1:T))
 %-------------------------------------------------------------------------%   
 
 
+
 % Initialize filter
-Acc = zeros(M,1);
-Px = zeros(M,1);
-
-% P(x(1),S(1)=j)
-for j=1:M    
-    Acc(j) = Pi(j) * mvnpdf(x(:,1)',mu(:,j)',Sigma(:,:,j));   
-end
-if all(Acc == 0)
-    Acc = eps * ones(M,1);
-end
-
-Mf(:,1) = Acc / sum(Acc);   % P(S(1)=j|y(1))
-L = log(sum(Acc));          % log(P(y(1)))
-
-if p > 1
-    for t = 2:p
-        % P(x(t)|S(t)=j)
-        for j = 1:M
-            Px(j) = mvnpdf(x(:,t)',mu(:,j)',Sigma(:,:,j));
-        end
-        
-        % P(x(t),S(t-1)=i,S(t)=j|x(1:t-1))
-        % = P(x(t)|S(t)=j) * P(S(t)=j|S(t-1)=i) * P(S(t-1)=i|x(1:t-1))
-        Acc = diag(Mf(:,t-1)) * Z * diag(Px);
-        if all(Acc(:) == 0)
-            Acc = eps * ones(M,M);
-        end
-        
-        % Log-likelihood
-        % P(x(t)|x(1:t-1)) = sum(i,j) P(x(t),S(t-1)=i,S(t)=j|x(1:t-1))
-        L = L + log(sum(Acc(:))); 
-        
-        % Filtered occupancy probability of state j at time t
-        Mf2 = Acc / sum(Acc(:)); % P(S(t-1)=i,S(t)=j|x(1:t))
-        Mf(:,t) = sum(Mf2).';    % P(S(t)=j|x(1:t))      
+for t = 1:p   
+    for j = 1:M
+        Lp(j,t) = mvnpdf(x(:,t)',mu(:,j)',Sigma(:,:,j));
+    end   
+    if t == 1
+        Acc = Pi(:) .* Lp(:,t);   
+    else
+        Acc = (Zt * Mf(:,t-1)) .* Lp(:,t);
+    end   
+    if any(isnan(Acc)) 
+        Acc(isnan(Acc)) = 0;
     end
-end
-
-
-% MAIN LOOP
-
-Lp = zeros(M,1);
-
-for t=p+1:T    
-    Xtm1 = reshape(x(:,t-1:-1:t-p),p*r,1);
-    % P(x(t)|x(1:t-1),S(t)=j)
-    for j=1:M                 
-        e = x(:,t) - A(:,:,j) * Xtm1;
-        Lp(j) = mvnpdf(e',[],Q(:,:,j));        
-    end
-    % P(x(t),S(t)=j|x(1:t-1))
-    % = P(x(t)|S(t)=j,x(1:t-1)) * sum(i=1:M) {P(S(t)=j|S(t-1)=i) * ...
-    % P(S(t-1)=i|x(1:t-1))}
-    Acc = Lp .* (Z' * Mf(:,t-1));    
+    L(t) = log(sum(Acc)); 
+    
     if all(Acc == 0)
-        Acc = eps * ones(M,1);
+        Acc = ones(M,1);
+    elseif any(isinf(Acc))
+        idx = isinf(Acc);
+        Acc(idx) = 1;
+        Acc(~idx) = 0;
     end
-    
-    % P(x(t)|x(1:t-1))
-    L = L + log(sum(Acc));
-    
-    % P(S(t)=j|x(1:t))
-    Mf(:,t) = Acc/sum(Acc);    
+    Mf(:,t) = Acc / sum(Acc);     
 end
 
- 
+
+% Calculate predictive probabilities Lp(j,t) = P(x(t)|S(t)=j,x(1:t-1))
+for j = 1:M
+    xp = zeros(r,T-p);
+    for k = 1:p
+        xp = xp + A(:,:,k,j) * x(:,p+1-k:end-k);
+    end
+    e = cholQ(:,:,j)\(x(:,p+1:end) - xp);
+    Lp(j,p+1:T) = exp(-0.5 * sum(e.^2) - logSqrtDetQ(j));
+end
+clear e xp
+
+
+% Calculate log-likelihood and filtered probabilities 
+for t=p+1:T    
+    Acc = Lp(:,t) .* (Zt * Mf(:,t-1));    
+    if any(isnan(Acc)) 
+        Acc(isnan(Acc)) = 0;
+    end
+    L(t) = log(sum(Acc));
+    
+    if all(Acc == 0)
+        Acc = ones(M,1); 
+    elseif any(isinf(Acc))
+        idx = isinf(Acc);
+        Acc(idx) = 1;
+        Acc(~idx) = 0;
+    end
+    Mf(:,t) = Acc / sum(Acc);    
+end
+clear Lp
+
+
+% Handle infinite values in log-likelihood
+test = isinf(L);
+if any(test)
+    if all(test)
+        L = -Inf;
+    else
+        L(test) = min(L(~test));        
+    end
+end 
+
+% Add log-likelihoods
+L = sum(L);
+
+if M == 1
+    return
+end
+
 
 %-------------------------------------------------------------------------%
 %                        Switching Kalman Smoother                        %
@@ -127,15 +152,14 @@ end
 % Initialize smoother at time T
 Ms(:,T) = Mf(:,T);
 
-for t = T-1:-1:1
-    
+for t = T-1:-1:1  
     % P(S(t)=j|S(t+1)=k,y(1:T))
-    U = diag(Mf(:,t)) * Z; 
-    U = U ./ repmat(sum(U),M,1); % scaling
+    U = Mf(:,t) .* Z; %@@@@ uses implicit expansion
+    U = U ./ sum(U);  %@@@@ uses implicit expansion
     U(isnan(U)) = 0;
     
     % P(S(t)=j,S(t+1)=k|y(1:T))
-    Ms2 = U * diag(Ms(:,t+1)); 
+    Ms2 = U .* (Ms(:,t+1)'); %@@@@ uses implicit expansion
     if all(Ms2(:) == 0)
         Ms2 = (1/M^2) * ones(M);
     end
@@ -146,8 +170,7 @@ for t = T-1:-1:1
     sum_Ms2 = sum_Ms2 + Ms2;
     
     % P(S(t)=j|y(1:T))
-    Ms(:,t) = sum(Ms2,2); 
-    
+    Ms(:,t) = sum(Ms2,2);    
 end
 
 

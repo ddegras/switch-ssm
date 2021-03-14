@@ -1,5 +1,5 @@
 function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-    bootstrap_var(A,Q,mu,Sigma,Pi,Z,T,B,control,equal,fixed,scale,parallel)
+    bootstrap_var(pars,T,B,control,equal,fixed,scale,parallel)
 
 %-------------------------------------------------------------------------%
 %
@@ -15,25 +15,16 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %           by maximum likelihood (EM algorithm). 
 %  
 % Usage:    [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-%               bootstrap_var(A,Q,mu,Sigma,Pi,Z,T,B,control,equal,fixed,...
-%               scale,parallel)
+%               bootstrap_var(pars,T,B,control,equal,fixed,scale,parallel)
 %
-% Inputs:   A - Estimate of transition matrix A(l,j) for l=1:p (lag) and  
-%               j=1:M (regime) (size rxrxpxM)  
-%           Q - Estimate of noise covariance Q(j)=Cov(v(t)|S(t)=j), j=1:M
-%               (size rxrxM)                 
-%           mu - Estimate of initial mean mu(j)=E(x(1)|S(1)=j), j=1:M  
-%               (size rxM) 
-%           Sigma -  Estimate of initial covariance Sigma(j)=V(x(1)|S(1)=j)), 
-%                j=1:M (size rxrxM) 
-%           Pi - Initial estimate of probability Pi(j)=P(S(1)=j), j=1:M 
-%               (size Mx1)
-%           Z - Initial estimate of transition probabilities Z(i,j) = 
-%               P(S(t)=j|S(t-1)=i), i,j=1:M (size MxM) 
+%  Inputs:  pars - structure of estimated model parameters with fields 'A',
+%               'Q','mu','Sigma','Pi', and 'Z'. Typically, this  
+%               structure is obtaining by calling init_var, switch_var, 
+%               fast_var, or reestimate_var
 %           T - Time series length
-%           B - Number of bootstrap replicates (default = 100)
+%           B - Number of bootstrap replicates (default = 500)
 %           control - optional struct variable with fields: 
-%                   'eps': tolerance for EM termination; default = 1e-8
+%                   eps tolerance for EM termination; default = 1e-8
 %                   'ItrNo': number of EM iterations; default = 100 
 %                   'beta0': initial inverse temperature parameter for 
 %                       deterministic annealing; default = 1 
@@ -50,20 +41,20 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %                       than (reltol * largest eigenvalue) are set to this
 %                       value)
 %            equal - optional structure with fields:
-%                   'A': if true, estimates of transition matrices A(l,j) 
+%               A - if true, estimates of transition matrices A(l,j) 
 %                       are equal across regimes j=1,...,M. Default = false
-%                   'Q': if true, estimates of innovation matrices Q(j) are
+%               Q - if true, estimates of innovation matrices Q(j) are
 %                       equal across regimes. Default = false
-%                   'mu': if true, estimates of initial mean state vectors 
+%               mu - if true, estimates of initial mean state vectors 
 %                       mu(j) are equal across regimes. Default = true
-%                   'Sigma': if true, estimates of initial variance matrices 
+%               Sigma - if true, estimates of initial variance matrices 
 %                       Sigma(j) are equal across regimes. Default = true
 %            fixed - optional struct variable with fields 'A','Q','mu',
 %                   'Sigma', 'Pi', 'Z'. If not empty, each field must be an 
 %                   array of the same dimension as the parameter. Numeric 
 %                   values in the array are interpreted as fixed coefficients 
 %                   whereas NaN's represent free (unconstrained) coefficients. 
-%            scale - optional structure with fields:
+%            scale - optional structure with field:
 %                   'A': upper bound on norm of eigenvalues of A matrices. 
 %                       Must be in (0,1) to guarantee stationarity of state 
 %                       process.
@@ -85,11 +76,11 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 
 
 % Check number of arguments
-narginchk(7,13);
+narginchk(3,8);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
-    B = 100;
+    B = 500;
 end
 if ~exist('control','var') ||  ~isstruct(control)
     control = struct('verbose',false);
@@ -113,7 +104,7 @@ if ~exist('parallel','var')
 end
 
 % Model dimensions
-[r,~,p,M] = size(A);
+[r,~,p,M] = size(pars.A);
 
 % Bootstrap estimates
 Aboot = zeros(r,r,p,M,B);
@@ -138,10 +129,9 @@ else
 end
  
 % Auxiliary quantities
-Amat = reshape(A,[r,p*r,M]);
 LQ = zeros(r,r,M);
 for j = 1:M
-    LQ(:,:,j) = chol(Q(:,:,j),'lower');
+    LQ(:,:,j) = chol(pars.Q(:,:,j),'lower');
 end
 
 parfor (b=1:B, poolsize) 
@@ -152,36 +142,35 @@ parfor (b=1:B, poolsize)
     end
     
     % Temporary variables
-    Amat_ = Amat;
-    mu_ = mu;
-    Sigma_ = Sigma;
-    Z_ = Z;
+    pars1 = pars;
+    A = reshape(pars1.A,r,p*r,M);
     LQ_ = LQ;
     x = zeros(r,T);
     Xtm1 = [];
+    cumZ = cumsum(pars1.Z,2);
         
     % Parametric bootstrap
     for t=1:T       
         if t == 1
-            c = cumsum(Pi);
+            c = cumsum(Pi); c(M) = 1;
         else        
             Stm1 = St;
-            c = cumsum(Z_(Stm1,:));
+            c = cumZ(Stm1,:);
         end          
-        St = M + 1 - sum(rand(1) <= c);        
+        St = sum(rand(1) > c) + 1;        
         if t <= p
-            x(:,t) = mvnrnd(mu_(:,St)',Sigma_(:,:,St))';
+            x(:,t) = mvnrnd(pars1.mu(:,St)',pars1.Sigma(:,:,St))';
             Xtm1 = [x(:,t) ; Xtm1];
         else
             vt = LQ_(:,:,St) * randn(N,1);
-            x(:,t) = Amat_(:,:,St) * Xtm1 + vt;
+            x(:,t) = A(:,:,St) * Xtm1 + vt;
             Xtm1 = [x(:,t) ; Xtm1(1:(p-1)*r)];               
         end        
     end       
         
     % EM algorithm 
     [~,~,~,~,Ab,Qb,mub,Sigmab,Pib,Zb,LL] = ... 
-            switch_var(x,M,p,A,Q,mu,Sigma,Pi,Z,control,equal,fixed,scale);   
+            switch_var(x,M,p,pars,control,equal,fixed,scale);   
     Aboot(:,:,:,:,b) = Ab;
     Qboot(:,:,:,b) = Qb;
     muboot(:,:,b) = mub;

@@ -1,6 +1,5 @@
-function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,... 
-    fixed,skip,equal,eps,ItrNo,beta0,betarate,safe,abstol,reltol,verbose,scale] = ... 
-    preproc_obs(M,N,p,r,A,C,Q,R,mu,Sigma,Pi,Z,fixed,equal,control,scale)
+function [outpars,control,equal,fixed,scale,skip] = ... 
+    preproc_obs(M,N,p,r,pars,control,equal,fixed,scale)
 
 
 
@@ -8,6 +7,9 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,...
 % Dimension of expanded state vector X(t,j) = (x(t,j),...,x(t-p+1,j)): p*r
 
 parname = {'A','C','Q','R','mu','Sigma','Pi','Z'};    
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
+
 
 % Subfunction to compare dimension attributes
 function out = identical(x,y,drop1)
@@ -142,7 +144,7 @@ par = {A,C,Q,R,mu,Sigma,Pi,Z};
 
 % Default values
 control0 = struct('eps',1e-7,'ItrNo',1000,'beta0',1,'betarate',1,...
-    'safe',true,'abstol',1e-8,'reltol',1e-8,'verbose',true);
+    'safe',false,'abstol',1e-8,'reltol',1e-8,'verbose',true);
 
 % Override with user-specified control parameters if any 
 if isstruct(control)
@@ -160,8 +162,11 @@ vals = struct2cell(control);
 if (abstol <= 0 || reltol <= 0) 
     error('Arguments ''abstol'' and ''retol'' must be stricly positive.')
 end
-if (beta0<0 || beta0>1 || betarate<0 || betarate>1)
-    error('Arguments ''beta0'' and ''betarate'' must be in (0,1].')
+if (beta0 <= 0 || beta0 > 1)
+    error('Argument ''beta0'' must be in (0,1].')
+end
+if (betarate < 1)
+    error('Argument ''betarate'' must be in [1,Inf).')
 end
 
 
@@ -329,6 +334,19 @@ for i = 1:8
 end
 fixed = fixed0;
 
+
+
+% Check fixed coefficients in A %@@@@@@@@
+if ~skip.A && ~isempty(fixed.A)
+    Atmp = NaN(N*N*p,M);
+    Atmp(fixed.A(:,1)) = fixed.A(:,2);
+    test1 = all(~isnan(Atmp));
+    test2 = all(isnan(Atmp) | Atmp == 0);
+    assert(all(test1 | test2), ['For each regime j, if A(:,:,:,j) is ',... 
+        'not entirely fixed, then any fixed coefficient must be zero.'])
+end
+
+
 % For covariance matrices Q, R, and Sigma, check (i) compatibility of fixed
 % coefficient constraints and symmetry and (ii) that either all
 % coefficients are fixed, all are free, or a diagonal structure is
@@ -394,13 +412,13 @@ if ~isempty(fixed.Pi)
 end
 
 if ~isempty(fixed.Z)
-    if ~all(fixed.Z(:,2) >= 0 && fixed.Z(:,2) <= 1)
+    if ~all(fixed.Z(:,2) >= 0 & fixed.Z(:,2) <= 1)
         error('Some fixed coefficients of ''Z'' are outside of [0,1]')
     end
     Ztmp = NaN(M);
     Ztmp(fixed.Z(:,1)) = fixed.Z(:,2);
-    test = ismember(sum(isnan(Ztmp),2),[0,M]);
-    if ~all(test)
+    test = sum(isnan(Ztmp),2);
+    if ~all(test == 0 | test == M)
         error(['For each row of ''Z'', coefficients  must either be ', ...
             'all fixed or all free'])
     end
@@ -494,17 +512,7 @@ clear param name rowmin rowmax
 %-------------------------------------------------------------------------%    
 
 
-
-Ahat = reshape(A,[r,p*r,M]);
-% Chat = zeros(N,p*r,M);
-% Chat(:,1:r,:) = C;
-Chat = C;
-Qhat = Q;
-Rhat = R;
-muhat = mu;
-Sigmahat = Sigma;
-Pihat = Pi;
-Zhat = Z;
+A = reshape(A,[r,p*r,M]);
 
     
 
@@ -514,23 +522,28 @@ Zhat = Z;
 
 
 for j=1:M
-    Qhat(:,:,j) = regfun(Qhat(:,:,j),abstol,reltol);
+    Q(:,:,j) = regfun(Q(:,:,j),abstol,reltol);
 end
 if ~isempty(fixed.Q)
-    Qhat(fixed.Q(:,1)) = fixed.Q(:,2);
+    Q(fixed.Q(:,1)) = fixed.Q(:,2);
 end
 
-Rhat = regfun(Rhat,abstol,reltol);
+R = regfun(R,abstol,reltol);
 if ~isempty(fixed.R)
-    Rhat(fixed.R(:,1)) = fixed.R(:,2);
+    R(fixed.R(:,1)) = fixed.R(:,2);
 end
 
 for j=1:M
-    Sigmahat(:,:,j) = regfun(Sigmahat(:,:,j),abstol,reltol);
+    Sigma(:,:,j) = regfun(Sigma(:,:,j),abstol,reltol);
 end
 if ~isempty(fixed.Sigma)
-    Sigmahat(fixed.Sigma(:,1)) = fixed.Sigma(:,2);
+    Sigma(fixed.Sigma(:,1)) = fixed.Sigma(:,2);
 end
+
+
+
+outpars = struct('A', A, 'C', C, 'Q', Q, 'R', R, 'mu', mu, ...
+    'Sigma', Sigma, 'Pi', Pi, 'Z', Z);
 
 
 

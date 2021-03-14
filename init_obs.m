@@ -1,5 +1,4 @@
-function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ... 
-    = init_obs(y,M,p,r,opts,control,equal,fixed,scale)
+function [pars,Shat] = init_obs(y,M,p,r,opts,control,equal,fixed,scale)
 
 %--------------------------------------------------------------------------
 %
@@ -14,8 +13,7 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ...
 %           S(t) = switching variable (Markov chain) taking values in {1:M} 
 % 
 % USAGE    
-% [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ... 
-%               = init_obs(y,M,p,r,opts,control,equal,fixed,scale)
+% [pars,Shat] = init_obs(y,M,p,r,opts,control,equal,fixed,scale)
 %
 % INPUTS:
 % y -   data (size NxT with time in cols, variables in rows) 
@@ -35,25 +33,26 @@ function [Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] ...
 %           find_single_cp for more details.
 %
 % OUTPUTS:
-% Ahat -    estimate of transition matrices A(l,j) (size rxrxpxM)
-% Chat -    estimate of observation matrices C(j), j=1:M (size NxrxM) 
-% Qhat -    estimate of state noise variance matrices Q(j) = V(v(t,j)) 
+% pars - structure variable containing model parameter estimates 
+%       A - estimate of transition matrices A(l,j) (size rxrxpxM)
+%       C - estimate of observation matrices C(j), j=1:M (size NxrxM) 
+%       Q - estimate of state noise variance matrices Q(j) = V(v(t,j)) 
 %           (size rxrxM)
-% Rhat -    estimate of observation noise variance matrix R = V(w(t)) 
+%       R - estimate of observation noise variance matrix R = V(w(t)) 
 %           (size NxN)
-% muhat -   estimate of initial mean of state vector mu(j) = E(x(1,j))
+%       mu - estimate of initial mean of state vector mu(j) = E(x(1,j))
 %           (size rxM)
-% Sigmahat - estimate of initial variance of state vector Sigma(j) = V(x(1,j)) 
+%       Sigma - estimate of initial variance of state vector Sigma(j) = V(x(1,j)) 
 %           (size rxrxM)
-% Pihat -   estimate of initial probabilities Pi(j) = P(S(1)=j) (size Mx1)
-% Zhat -    estimate of transition probabilities between regimes Z(i,j) = 
+%       Pi - estimate of initial probabilities Pi(j) = P(S(1)=j) (size Mx1)
+%       Z - estimate of transition probabilities between regimes Z(i,j) = 
 %           P(S(t)=j|S(t-1)=i) (size MxM)
-% Shat -    estimate of regimes S(t) (size Tx1)
+% Shat - estimate of regimes S(t) (size Tx1)
 %
 % Author:   David Degras, david.degras@umb.edu
 %           University of Massachusetts Boston
 %
-% Date:     August 28, 2018
+% Date:     January 18, 2021
 %
 % Reference: "Exploring dynamic functional connectivity of the brain with
 %           switching state-space models". D. Degras, C.-M. Ting, and 
@@ -104,15 +103,14 @@ fixed_tmp = fixed;
 test1 = isstruct(fixed) && isfield(fixed,'C');
 test2 = isstruct(equal) && isfield(equal,'C') && equal.C;
 if test1
-    if test2
+    if test2 || M == 1
         fixed_tmp.C = fixed.C(:,:,1);
     else
         fixed_tmp = rmfield(fixed,'C');
     end
 end
 
-[Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,Shat] = ...
-    init_dyn(y,M,p,r,opts,control,equal,fixed_tmp,scale); 
+[pars,Shat] = init_dyn(y,M,p,r,opts,control,equal,fixed_tmp,scale); 
 
 % Trivial case: M=1 (no switching). In this case the switching dynamics and
 % switching observations models are identical (a standard linear state-space
@@ -129,12 +127,10 @@ end
 %-------------------------------------------------------------------------%
 
 
-[Ahat,Chat,Qhat,Rhat,~,~,~,~] = ...
-    reestimate_obs(y,M,p,r,Shat,control,equal,fixed,scale);
+pars = reestimate_obs(y,M,p,r,Shat,control,equal,fixed,scale);
 
 % Test compatibility between initial estimates and specified constraints
-test = preproc_obs(M,N,p,r,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,...
-    fixed,equal,control,scale); %#ok<NASGU>
+test = preproc_obs(M,N,p,r,pars,control,equal,fixed,scale); %#ok<NASGU>
 
 
 

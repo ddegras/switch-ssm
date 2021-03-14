@@ -1,5 +1,5 @@
 function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-    skfs_p1r1_dyn(y,M,~,~,A,C,Q,R,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
+    skfs_p1r1_dyn(y,M,~,~,pars,beta,safe,abstol,reltol)
 
 %--------------------------------------------------------------------------
 %
@@ -27,6 +27,10 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 % Size of 'small' state vector x(t): r
 % Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
 
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
+
+
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
 warning('off','MATLAB:nearlySingularMatrix');
@@ -36,7 +40,7 @@ warning('off','MATLAB:illConditionedMatrix');
 % xp = zeros(p*r,M,M,T);	% E(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)
 % Vp = zeros(p*r,p*r,M,M,T); % V(x(t)|y(1:t-1),S(t-1)=i)
 xp = zeros(M,M,T);	% E(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)   @@@@ reduce memory footprint
-Vp = zeros(M,M,T);  % V(x(t)|y(1:t-1),S(t-1)=i)          @@@@ reduce memory footprint
+Vp = zeros(M,M,T);  % V(x(t)|y(1:t-1),S(t-1)=i,S(t)=j)   @@@@ reduce memory footprint
 % xf = zeros(1,T);    % E(X(t)|y(1:t))
 xf1 = zeros(M,T);	% E(X(t)|y(1:t),S(t)=j)
 xf2 = zeros(M,M);   % E(X(t)|y(1:t),S(t-1)=i,S(t)=j)

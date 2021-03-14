@@ -1,5 +1,5 @@
 function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-    skfs_r1_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
+    skfs_r1_dyn(y,M,p,r,pars,beta,safe,abstol,reltol)
 
 %--------------------------------------------------------------------------
 %
@@ -9,11 +9,11 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 % PURPOSE
 % This is not meant to be directly called by the user. It is called by
 % functions 'switch_dyn' and 'fast_dyn' to complete the E step of the EM
-% algorithm. 
+% algorithm. SPECIAL CASE r = 1
 % 
 % USAGE
 % [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ... 
-%     skfs_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
+%     skfs_r1_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,beta,safe,abstol,reltol)
 %
 % REFERENCES
 % C. J. Kim (1994) "Dynamic Linear Models with Markov-Switching", Journal of
@@ -26,6 +26,10 @@ function [Mf,Ms,xf,xs,L,MP0,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P] = ...
 [N,T] = size(y); 
 % Size of 'small' state vector x(t): r
 % Size of 'big' state vector X(t) = (x(t),...,x(t-p+1)): p * r
+
+A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
+Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
+
 
 % Remove warnings when inverting singular matrices
 warning('off','MATLAB:singularMatrix');
@@ -66,13 +70,24 @@ Mx0 = zeros(p,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
 
 
 
+
+% Expand matrices
+Abig = repmat(diag(ones((p-1)*r,1),-r),[1,1,M]);
+Abig(1:r,:,:) = A;
+Cbig = zeros(N,p);
+Cbig(:,1) = C;
+Qbig = zeros(p,p,M);
+Qbig(1,1,:) = Q(:);
+
 % Auxiliary quantities
-Csmall = C(:,1);
-CCt = Csmall * Csmall';
-RinvC = R\Csmall;
-CtRinvC = (Csmall')*RinvC; 
+CCt = C * C';
+RinvC = R\Cbig;
+CtRinvC = dot(C,RinvC(:,1)); 
 cst = - N / 2 * log(2*pi);
-p_1 = (p == 1);
+% p_1 = (p == 1);
+
+mu = mu(:);
+Sigma = Sigma(:);
 
 
 %-------------------------------------------------------------------------%
@@ -83,14 +98,14 @@ p_1 = (p == 1);
 % Initialize filter
 Acc = zeros(M,1);
 for j=1:M
-    S_j = Sigma(:,:,j);
-    e = y(:,1) - Csmall * mu(1,j);
+    S_j = Sigma(j) * eye(p);
+    e = y(:,1) - C * mu(j);
     Ve = S_j(1) * CCt + R;
     if safe
         Ve = regfun(Ve,abstol,reltol);
     end
-    xf1(:,j,1) = mu(:,j) + S_j * C.' * (Ve\e);
-    Vf1(:,:,j,1) = S_j - S_j * C.' * (Ve\C) * S_j;
+    xf1(:,j,1) = mu(j) + S_j * Cbig.' * (Ve\e);
+    Vf1(:,:,j,1) = S_j - S_j * Cbig.' * (Ve\Cbig) * S_j;
     Acc(j) = Pi(j) * mvnpdf(e.',[],Ve);   
 end
 
@@ -110,15 +125,15 @@ for t=2:T
         for j=1:M      
             
             % Prediction of x(t)
-            xp_ij = A(:,:,j) * xf1(:,i,t-1); 
-            Vp_ij = A(:,:,j) * Vf1(:,:,i,t-1) * A(:,:,j).' + Q(:,:,j); 
+            xp_ij = Abig(:,:,j) * xf1(:,i,t-1); 
+            Vp_ij = Abig(:,:,j) * Vf1(:,:,i,t-1) * Abig(:,:,j).' + Qbig(:,:,j); 
         
             % Store predictions
             xp(i,j,t) = xp_ij(1);
             Vp(i,j,t) = Vp_ij(1);
 
             % Prediction error for y(t)
-            e = y(:,t) - Csmall * xp_ij(1);
+            e = y(:,t) - C * xp_ij(1);
             Ve = Vp_ij(1) * CCt + R; % Variance of prediction error
 %             Ve = 0.5 * (Ve+Ve.');
             % Check that variance matrix is positive definite and well-conditioned
@@ -134,7 +149,9 @@ for t=2:T
                 ((RinvC.'*e)/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1);
 %             Vf2(:,:,i,j) = Vp_ij - K * CVp;   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
             Vf2(:,:,i,j) = Vp_ij - ...
-                ((RinvC.'*Csmall)/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1) * Vp_ij(1,:);
+                (CtRinvC/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1) * Vp_ij(1,:);
+%             Vf2(:,:,i,j) = Vp_ij - ...
+%                 ((RinvC.'*C)/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1) * Vp_ij(1,:);
 %             if t == T
 %               % Cov(x(t),x(t-1)|S(t-1)=i,S(t)=j,y(1:t))
 %                 CVf2(:,:,i,j) = (I - K*C) * A(:,:,j) * Vf1(:,:,i,t-1); 
@@ -174,7 +191,7 @@ for t=2:T
     W(isnan(W)) = 0;
   
     % Collapse M^2 distributions (X(t)|S(t-1:t),y(1:t)) to M (X(t)|S(t),y(1:t))
-    if ~p_1 % case p > 1: double for loop 
+%     if ~p_1 % case p > 1: double for loop 
         for j = 1:M
             xhat = xf2(:,:,j) * W(:,j);
             for i = 1:M
@@ -185,14 +202,14 @@ for t=2:T
         xf1(:,j,t) = xhat;   % E(X(t)|S(t)=j,y(1:t))     (Eq. 11)
         Vf1(:,:,j,t) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:t))   (Eq. 12)
         end
-    else % case p = 1 
-        xf2_ = squeeze(xf2);
-        Vf2_ = squeeze(Vf2);
-        xhat = sum(xf2_ .* W); 
-        xf1(:,:,t) = xhat;  % E(X(t)|S(t)=j,y(1:t)) j=1:M
-        Vhat = sum(W .* (Vf2_ + (xf2_ - xhat).^2));
-        Vf1(:,:,:,t) = Vhat(:); % V(X(t)|S(t)=j,y(1:t)), j=1:M
-    end
+%     else % case p = 1 
+%         xf2_ = squeeze(xf2);
+%         Vf2_ = squeeze(Vf2);
+%         xhat = sum(xf2_ .* W); 
+%         xf1(:,:,t) = xhat;  % E(X(t)|S(t)=j,y(1:t)) j=1:M
+%         Vhat = sum(W .* (Vf2_ + (xf2_ - xhat).^2));
+%         Vf1(:,:,:,t) = Vhat(:); % V(X(t)|S(t)=j,y(1:t)), j=1:M
+%     end
   
 end % end t loop  
   
@@ -228,8 +245,8 @@ CVhat = zeros(r,p,M);
 for t = T-1:-1:1
     
     % Store relevant vectors/matrices from previous iteration
-    xs1tp1 = xs1; % E(X(t+1)|S(t+1),y(1:T))
-    Vs1tp1 = Vs1; % V(X(t+1)|S(t+1),y(1:T))
+    xs1tp1 = xs1(1,:); % E(X(t+1)|S(t+1),y(1:T))
+    Vs1tp1 = Vs1(1,1,:); % V(X(t+1)|S(t+1),y(1:T))
 
     % Predicted and filtered mean and variance (for faster access)
     xptp1 = xp(:,:,t+1);
@@ -245,13 +262,13 @@ for t = T-1:-1:1
             % J(t) = V(X(t)|S(t)=j,y(1:t)) * A_k' * V(x(t+1)|S(t)=j,y(1:t))^{-1}
             J = Vf1t(:,:,j) * Asmall(:,k) / Vptp1(j,k);                  
             % E(X(t)|S(t)=j,S(t+1)=k,y(1:T))
-            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(1,k) - xptp1(j,k)); 
+            xs2(:,j,k) = xf1t(:,j) + J * (xs1tp1(k) - xptp1(j,k)); 
             % V(X(t)|S(t)=j,S(t+1)=k,y(1:T))
-            Vs2(:,:,j,k) = Vf1t(:,:,j) + J * (Vs1tp1(1,1,k) - Vptp1(j,k)) * J.'; 
+            Vs2(:,:,j,k) = Vf1t(:,:,j) + J * (Vs1tp1(k) - Vptp1(j,k)) * J.'; 
             % Cov(x(t+1),X(t)|S(t)=j,S(t+1)=k,y(1:T)) = V(x(t+1)|S(t+1)=k,y(1:T)) * J(t)'
             % Equation (20) of "Derivation of Kalman filtering and smoothing equations"
             % by B. M. Yu, K. V. Shenoy, M. Sahani. Technical report, 2004.
-            CVs2(:,:,j,k) = Vs1tp1(1,1,k) * J.';  
+            CVs2(:,:,j,k) = Vs1tp1(k) * J.';  
         end
     end    
     
@@ -280,7 +297,7 @@ for t = T-1:-1:1
     %         xs1(:,j) = W(j,:) * squeeze(xs2(:,j,:)); % @@@@@@@@@@@@
             for k = 1:M
                 m = xs2(:,j,k) - xs1(:,j);
-                Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m'));
+                Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m.'));
             end
             Vs1(:,:,j) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:T))
         end

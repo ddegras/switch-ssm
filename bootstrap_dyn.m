@@ -1,5 +1,5 @@
 function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-    bootstrap_dyn(A,C,Q,R,mu,Sigma,Pi,Z,T,B,control,equal,fixed,scale,parallel)
+    bootstrap_dyn(pars,T,B,control,equal,fixed,scale,parallel)
 
 %-------------------------------------------------------------------------%
 %
@@ -20,22 +20,12 @@ function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %               = bootstrap_dyn(A,C,Q,R,mu,Sigma,Pi,Z,T,B,control,equal,...
 %                   fixed,scale,parallel)
 %
-% Inputs:   A - Estimate of transition matrix A(l,j) for l=1:p (lag) and  
-%               j=1:M (regime) (size rxrxpxM)
-%           C - Estimate of observation matrix C (size Nxr)
-%           Q - Estimate of noise covariance Q(j)=Cov(v(t)|S(t)=j), j=1:M
-%               (size rxrxM)   
-%           R - Estimate of observation noise covariance R = V(w(t))
-%           mu - Estimate of initial mean mu(j)=E(x(1)|S(1)=j), j=1:M  
-%               (size rxM) 
-%           Sigma - Estimate of initial covariance Sigma(j)=V(x(1)|S(1)=j)), 
-%                j=1:M (size rxrxM) 
-%           Pi - Estimate of initial probability Pi(j)=P(S(1)=j), j=1:M 
-%               (size Mx1)
-%           Z - Estimate of transition probability Z(i,j)=P(S(t)=j|S(t-1)=i)
-%               i,j=1:M (size MxM) 
+% Inputs:   pars - structure of estimated model parameters with fields 'A',
+%               'C','Q','R','mu','Sigma','Pi', and 'Z'. Typically, this  
+%               structure is obtaining by calling init_dyn, switch_dyn, 
+%               fast_dyn, or reestimate_dyn
 %           T - Time series length
-%           B - Number of bootstrap replicates (default = 100)
+%           B - Number of bootstrap replicates (default = 500)
 %           control - optional struct variable with fields: 
 %                   'eps': tolerance for EM termination; default = 1e-8
 %                   'ItrNo': number of EM iterations; default = 100 
@@ -97,11 +87,11 @@ function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 
 
 % Check number of arguments
-narginchk(9,15);
+narginchk(3,8);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
-    B = 100;
+    B = 500;
 end
 if ~exist('control','var') ||  ~isstruct(control)
     control = struct('verbose',false);
@@ -125,10 +115,9 @@ if ~exist('parallel','var')
 end
 
 % Model dimensions
-M = numel(Pi);
-N = size(C,1);
-p = size(A,3);
-r = size(mu,1);
+M = numel(pars.Pi);
+[N,r] = size(pars.C);
+p = size(pars.A,3);
 
 % Bootstrap estimates
 Aboot = zeros(r,r,p,M,B);
@@ -155,12 +144,11 @@ else
 end
  
 % Auxiliary quantities
-Amat = reshape(A,[r,p*r,M]);
 LQ = zeros(r,r,M);
 for j = 1:M
-    LQ(:,:,j) = chol(Q(:,:,j),'lower');
+    LQ(:,:,j) = chol(pars.Q(:,:,j),'lower');
 end
-LR = chol(R,'lower');
+LR = chol(pars.R,'lower');
 
 
 parfor (b=1:B, poolsize) 
@@ -171,43 +159,44 @@ parfor (b=1:B, poolsize)
     end
     
     % Temporary variables
-    Amat_ = Amat;
-    mu_ = mu;
-    Sigma_ = Sigma;
-    Z_ = Z;
-    LQ_ = LQ;
-    LR_ = LR;
+    pars1 = pars;
+    A1 = reshape(pars1.A,r,p*r,M);
+    C1 = pars1.C;
+    cumZ = cumsum(pars1.Z,2); cumZ(:,M) = 1;
+    LQ1 = LQ;
+    LR1 = LR;
    
     % Parametric bootstrap     
     y = zeros(N,T);
     for t = 1:T
         if t == 1
-            c = cumsum(Pi);
-            St = M + 1 - sum(rand(1) <= c);
-            Xtm1 = reshape(mvnrnd(mu_(:,St)',Sigma_(:,:,St),p),p*r,1);
+            cumPi = cumsum(pars1.Pi); cumPi(M) = 1;
+            St = sum(rand(1) > cumPi) + 1;
+            Xtm1 = reshape(mvnrnd(pars1.mu(:,St)',...
+                pars1.Sigma(:,:,St),p),p*r,1);
             xt = Xtm1(1:p,:);
         else
             Stm1 = St;
-            c = cumsum(Z_(Stm1,:));              
-            St = M + 1 - sum(rand(1) <= c);                    
-            vt = LQ_(:,:,St) * randn(r,1);
-            xt = Amat_(:,:,St) * Xtm1 + vt;
+            c = cumZ(Stm1,:);              
+            St = sum(rand(1) > c) + 1;                    
+            vt = LQ1(:,:,St) * randn(r,1);
+            xt = A1(:,:,St) * Xtm1 + vt;
             Xtm1 = [xt;Xtm1(1:(p-1)*r)];
         end
-        y(:,t) = C_ * xt + LR_ * randn(N,1);
+        y(:,t) = C1 * xt + LR1 * randn(N,1);
     end   
 
     % EM algorithm  
-    [~,~,~,~,~,~,Ab,Cb,Qb,Rb,mub,Sigmab,Pib,Zb,LL] = ... 
-            switch_dyn(y,M,p,r,A,C,Q,R,mu,Sigma,Pi,Z,control,equal,fixed,scale);   
-    Aboot(:,:,:,:,b) = Ab;
-    Cboot(:,:,b) = Cb;
-    Qboot(:,:,:,b) = Qb;
-    Rboot(:,:,b) = Rb;
-    muboot(:,:,b) = mub;
-    Sigmaboot(:,:,:,b) = Sigmab;
-    Piboot(:,b) = Pib;
-    Zboot(:,:,b) = Zb;
+    [~,~,~,~,~,~,parsboot,LL] = ... 
+            switch_dyn(y,M,p,r,pars1,control,equal,fixed,scale);   
+    Aboot(:,:,:,:,b) = parsboot.A;
+    Cboot(:,:,b) = parsboot.C;
+    Qboot(:,:,:,b) = parsboot.Q;
+    Rboot(:,:,b) = parsboot.R;
+    muboot(:,:,b) = parsboot.mu;
+    Sigmaboot(:,:,:,b) = parsboot.Sigma;
+    Piboot(:,b) = parsboot.Pi;
+    Zboot(:,:,b) = parsboot.Z;
     LLboot(b) = max(LL);
     
     % Display progress if required

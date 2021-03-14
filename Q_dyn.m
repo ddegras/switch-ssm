@@ -4,34 +4,21 @@
 % Initial state vector X(t)=(x(1),...,x(2-p)) ~
 % N((mu_j,...,mu_j),diag(S_j,...,S_j)) conditional on S(1)=j
 
-function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
-    MP0,Ms,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,sum_P,sum_xy,sum_yy)
+function Qval = Q_dyn(pars,MP0,Ms,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,...
+    sum_P,sum_xy,sum_yy)
 
-    M = numel(Pi);
-    N = size(R,1);
-    r = size(A,2)/p;
-
-%     % Reduce parameters
-%     A = A(1:r,:,:);
-%     C = C(:,1:r);
-%     Q = Q(1:r,1:r,:);
-
-    % Expand parameters
-    mu = repmat(mu,p,1);
-    Stmp = zeros(p*r,p*r,M);
-    for j = 1:M
-        Stmp(:,:,j) = kron(eye(p),Sigma(:,:,j));
-    end
-    Sigma = Stmp;
-    
+    [M,T] = size(Ms);
+    [N,r] = size(pars.C);
+    p = size(pars.A,2) / size(pars.A,1);
+        
     % C/R contribution
-    [R_chol,err] = cholcov(R);
+    [R_chol,err] = cholcov(pars.R);
     if err 
         Qval = -Inf;
         return
     end        
     Q_CR = -0.5*T*N*log(2*pi) - T * sum(log(diag(R_chol))) ...
-        - 0.5*trace(R\(sum_yy - 2 * C * sum_xy + C * sum_P * C.')); 
+        - 0.5*trace(pars.R\(sum_yy - 2 * pars.C * sum_xy + pars.C * sum_P * pars.C.')); 
      
     % A/Q contribution
     Q_AQ = -0.5*(T-1)*r*log(2*pi);
@@ -40,8 +27,8 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
         if sum_Mj == 0
             continue
         end
-        A_j = A(:,:,j);
-        Q_j = Q(:,:,j);
+        A_j = pars.A(:,:,j);
+        Q_j = pars.Q(:,:,j);
         [Qj_chol,err] = cholcov(Q_j);
         if err
             Qval = -Inf;
@@ -61,8 +48,8 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
         if Ms(j,1) == 0
             continue
         end
-        mu_j = mu(:,j);
-        Sigma_j = Sigma(:,:,j);
+        mu_j = repmat(pars.mu(:,j),p,1);
+        Sigma_j = kron(eye(p),pars.Sigma(:,:,j));
         [Sigmaj_chol,err] = cholcov(Sigma_j);
         if err
             Qval = -Inf;
@@ -76,10 +63,10 @@ function Qval = Q_dyn(A,C,Q,R,mu,Sigma,Pi,Z,p,T,...
     end
     
     % Pi/Z contribution
-    logPi = log(Pi);
+    logPi = log(pars.Pi);
     logPi(isinf(logPi)) = 0;
     Q_Pi = dot(Ms(:,1),logPi); 
-    logZ = log(Z(:));
+    logZ = log(pars.Z(:));
     logZ(isinf(logZ)) = 0;
     Q_Z = dot(sum_Ms2(:),logZ);
 
