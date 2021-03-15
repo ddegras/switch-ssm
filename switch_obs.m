@@ -144,7 +144,7 @@ if any(structfun(@isempty,pars0))
 end
 
 [pars,control,equal,fixed,scale,skip] = ... 
-    preproc_obs(M,N,p,r,pars,control,fixed,equal,scale);
+    preproc_obs(M,N,p,r,pars,control,equal,fixed,scale);
 
 abstol = control.abstol;
 reltol = control.reltol;
