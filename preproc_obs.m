@@ -390,7 +390,7 @@ for i = 1:2
     temp = NaN(r,r,M);
     temp(fixed.(name)(:,1)) = fixed.(name)(:,2);
     offdiag = find(repmat(eye(r),1,1,M) == 0);
-    test = all(isnan(temp(~offdiag)) & temp(offdiag) == 0); 
+    test = all(isnan(temp(~offdiag))) && all(temp(offdiag) == 0); 
     if ~test
         error(msg2,name)
     end  
