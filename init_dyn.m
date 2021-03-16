@@ -27,6 +27,8 @@ function [pars,Shat] = init_dyn(y,M,p,r,opts,control,equal,fixed,scale)
 %       'tol':  minimum relative decrease in loss function for a point to be
 %           acceptable as change point. Only for binary segmentation. See
 %           function find_single_cp for more details.
+%       'Replicates': number of replicates in k-means (default=10)
+%       'UseParallel': use parallel computing for k-means? (default=false)
 % control:  optional structure with fields
 %       'abstol':  absolute tolerance for eigenvalues when regularizing 
 %           estimates of covariance matrices Q, R, and Sigma. Eigenvalues 
@@ -82,25 +84,22 @@ warning('off','MATLAB:nearlySingularMatrix');
 %     Set optional arguments to default values if not specified           %
 %-------------------------------------------------------------------------%
 
-opts0 = struct('segmentation','fixed',...
-    'len',[],'delta',max(2*p,floor(T/10)),'tol',.05);
+opts0 = struct('segmentation','fixed','len',[],'tol',.05,...
+    'delta',max(2*p,floor(T/10)), 'UseParallel',false, 'Replicates',10);
 if exist('opts','var') && isstruct(opts)
-    % Check argument 'segmentation'
-    if isfield(opts,'segmentation') 
-        opts0.segmentation = opts.segmentation;
-    end
-    % Check arguments 'segments', 'delta' and 'tol'
-    if isfield(opts,'len') 
-            opts0.len = min(opts.len,floor(T/M));
-    end
-    if isfield(opts,'delta') 
-            opts0.delta = opts.delta;
-    end
-    if isfield(opts,'tol')
-        opts0.tol = opts.tol;
+    fname = fieldnames(opts0);
+    for i = 1:numel(fname)
+        if isfield(opts,fname{i})
+            opts0.(fname{i}) = opts.(fname{i});
+        end
     end
 end
 opts = opts0;
+if opts.UseParallel
+    opts.UseParallel = statset('UseParallel',1);
+else
+    opts.UseParallel = [];
+end
 
 control0 = struct('abstol',1e-8,'reltol',1e-4); 
 if exist('control','var') && isstruct(control) 
@@ -369,7 +368,8 @@ else
     Thetahat = vertcat(Thetahat{:});
     
     % K-means clustering
-    [Shat,~] = kmeans(Thetahat,M,'Replicates',10); 
+    [Shat,~] = kmeans(Thetahat,M,'Replicates',opts.Replicates,...
+        'Options',opts.UseParallel); 
     clear Thetahat
    
     % If S(1)!=1, say S(1)=j, swap cluster labels 1 and j so that S(1)=1 

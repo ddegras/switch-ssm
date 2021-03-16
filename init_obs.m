@@ -31,6 +31,8 @@ function [pars,Shat] = init_obs(y,M,p,r,opts,control,equal,fixed,scale)
 %       'tol': minimum relative decrease in loss function for a point to be
 %           a valid change point (for binary segmentation). See function 
 %           find_single_cp for more details.
+%       'Replicates': number of replicates in k-means (default=10)
+%       'UseParallel': use parallel computing for k-means? (default=false)
 %
 % OUTPUTS:
 % pars - structure variable containing model parameter estimates 

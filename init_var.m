@@ -26,6 +26,8 @@ function [pars,Shat] = init_var(y,M,p,opts,control,equal,fixed,scale)
 %       'tol':  minimum relative decrease in loss function for a point to be
 %           acceptable as change point. Only for binary segmentation. See
 %           function find_single_cp for more details.
+%       'Replicates': number of replicates in k-means (default=10)
+%       'UseParallel': use parallel computing for k-means? (default=false)
 % control:  optional structure with fields
 %       'abstol':  absolute tolerance for eigenvalues when regularizing 
 %           estimates of covariance matrices Q, R, and Sigma. Eigenvalues 
