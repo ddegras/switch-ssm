@@ -91,6 +91,7 @@ end
 
 % Check eigenvalues of estimate and regularize if needed    
 if ~skip.A
+    Abig = diag(ones((p-1)*r,1),-r);
     for j = 1:M
         % Check eigenvalues
         Abig(1:r,:,:) = Ahat(:,:,j);
