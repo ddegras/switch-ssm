@@ -323,7 +323,7 @@ end
 
 
 if ~skip.mu
-    sum_Mx0 = squeeze(sum(reshape(Mx0,[r,p,M]),2)); 
+    sum_Mx0 = reshape(sum(reshape(Mx0,[r,p,M]),2),[r,M]); 
     if equal.mu && equal.Sigma
         muhat = sum(sum_Mx0,2)/p;
         muhat = repmat(muhat,1,M);

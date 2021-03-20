@@ -52,7 +52,7 @@ Mf = zeros(M,T);        % P(S(t)=j|y(1:t))
 % Mf2 = zeros(M,M);       % P(S(t-1)=i,S(t)=j|y(1:t))
 
 % Declare Kalman smoothing variables
-xs = zeros(p,T);      % E(X(t)|y(1:T))
+xs = zeros(1,T);      % E(X(t)|y(1:T))
 xs2 = zeros(p,M,M);   % E(X(t)|y(1:T),S(t)=j,S(t+1)=k)
 Vs2 = zeros(p,p,M,M); % V(X(t)|y(1:T),S(t)=j,S(t+1)=k)
 CVs1 = zeros(1,p,M);  % Cov(x(t+1),X(t)|y(1:T),S(t+1)=k) 
@@ -73,7 +73,7 @@ Mx0 = zeros(p,M);     % P(S(1)=j|y(1:T)) * E(X(1)|S(t)=j,y(1:T))
 
 % Expand matrices
 Abig = repmat(diag(ones((p-1)*r,1),-r),[1,1,M]);
-Abig(1:r,:,:) = A;
+Abig(1,:,:) = A;
 Cbig = zeros(N,p);
 Cbig(:,1) = C;
 Qbig = zeros(p,p,M);
@@ -81,10 +81,11 @@ Qbig(1,1,:) = Q(:);
 
 % Auxiliary quantities
 CCt = C * C';
-RinvC = R\Cbig;
-CtRinvC = dot(C,RinvC(:,1)); 
+% RinvC = R\Cbig;
+% CtRinvC = dot(C,RinvC(:,1)); 
+RinvC = R\C; % @@@@@@@@@
+CtRinvC = dot(C,RinvC); 
 cst = - N / 2 * log(2*pi);
-% p_1 = (p == 1);
 
 mu = mu(:);
 Sigma = Sigma(:);
@@ -135,7 +136,6 @@ for t=2:T
             % Prediction error for y(t)
             e = y(:,t) - C * xp_ij(1);
             Ve = Vp_ij(1) * CCt + R; % Variance of prediction error
-%             Ve = 0.5 * (Ve+Ve.');
             % Check that variance matrix is positive definite and well-conditioned
             if safe
                 Ve = regfun(Ve,abstol,reltol);
@@ -146,7 +146,7 @@ for t=2:T
 %             K = (CVp.') / Ve; % Kalman gain matrix
 %             xf2(:,i,j) = xp_ij + K * e;         % E(X(t)|S(t-1)=i,S(t)=j,y(1:t))
             xf2(:,i,j) = xp_ij + ...
-                ((RinvC.'*e)/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1);
+                (dot(RinvC,e)/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1);
 %             Vf2(:,:,i,j) = Vp_ij - K * CVp;   % V(X(t)|S(t-1)=i,S(t)=j,y(1:t))
             Vf2(:,:,i,j) = Vp_ij - ...
                 (CtRinvC/(1+Vp_ij(1)*CtRinvC)) * Vp_ij(:,1) * Vp_ij(1,:);
@@ -191,27 +191,18 @@ for t=2:T
     W(isnan(W)) = 0;
   
     % Collapse M^2 distributions (X(t)|S(t-1:t),y(1:t)) to M (X(t)|S(t),y(1:t))
-%     if ~p_1 % case p > 1: double for loop 
-        for j = 1:M
-            xhat = xf2(:,:,j) * W(:,j);
-            for i = 1:M
-                m = xf2(:,i,j) - xhat;
-                Vhat(:,:,i) = W(i,j) * (Vf2(:,:,i,j) + (m*m.'));
-            end 
-        % Filtered density of x(t) given state j
-        xf1(:,j,t) = xhat;   % E(X(t)|S(t)=j,y(1:t))     (Eq. 11)
-        Vf1(:,:,j,t) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:t))   (Eq. 12)
-        end
-%     else % case p = 1 
-%         xf2_ = squeeze(xf2);
-%         Vf2_ = squeeze(Vf2);
-%         xhat = sum(xf2_ .* W); 
-%         xf1(:,:,t) = xhat;  % E(X(t)|S(t)=j,y(1:t)) j=1:M
-%         Vhat = sum(W .* (Vf2_ + (xf2_ - xhat).^2));
-%         Vf1(:,:,:,t) = Vhat(:); % V(X(t)|S(t)=j,y(1:t)), j=1:M
-%     end
-  
-end % end t loop  
+    for j = 1:M
+        xhat = xf2(:,:,j) * W(:,j);
+        for i = 1:M
+            m = xf2(:,i,j) - xhat;
+            Vhat(:,:,i) = W(i,j) * (Vf2(:,:,i,j) + (m*m.'));
+        end 
+    % Filtered density of x(t) given state j
+    xf1(:,j,t) = xhat;   % E(X(t)|S(t)=j,y(1:t))     (Eq. 11)
+    Vf1(:,:,j,t) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:t))   (Eq. 12)
+    end
+        
+end % end t loop
   
 
 % Collapse M distributions (X(t)|S(t),y(1:t)) to 1 (X(t)|y(1:t))
@@ -232,7 +223,7 @@ xs(:,T) = xf(:,T);
 xsb = zeros(p,M); 
 xs1 = xf1(:,:,T);
 Vs1 = Vf1(:,:,:,T);
-Asmall = reshape(A(1,:,:),p,M);  
+Asmall = reshape(A,p,M);  
 MCP = zeros(1,p,M); 
 MP = zeros(1,1,M); 
 MPb = zeros(p,p,M);
@@ -291,44 +282,34 @@ for t = T-1:-1:1
     W(isnan(W)) = 0;
     
     % Collapse M^2 distributions to M 
-    if ~p_1 % case p > 1: double for loop
-        for j = 1:M
-            xs1(:,j) = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T)) @@@@@@@@
-    %         xs1(:,j) = W(j,:) * squeeze(xs2(:,j,:)); % @@@@@@@@@@@@
-            for k = 1:M
-                m = xs2(:,j,k) - xs1(:,j);
-                Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m.'));
-            end
-            Vs1(:,:,j) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:T))
-        end
-        % Cov(x(t+1),X(t)|S(t+1)=k,y(1:T))
-        % B/c of approximation E(x(t+1)|S(t)=j,S(t+1)=k,y(1:T)) ~= E(x(t+1)|S(t+1)=k,y(1:T)),
-        % Cov(x(t+1),X(t)|S(t+1)=k,y(1:T)) ~= sum(j=1:M) Cov(x(t+1),X(t)|S(t)=j,S(t+1)=k,y(1:T)) * U(j,k)
-        % with U(j,k) = P(S(t)=j|S(t+1)=k,y(1:T))
-        for k = 1:M  
-            for j = 1:M
-                CVhat(:,:,j) = U(j,k) * CVs2(:,:,j,k); 
-            end
-            CVs1(:,:,k) = sum(CVhat,3);
-        end    
-        % V(X(t)|S(t+1)=k,y(1:T))
+    for j = 1:M
+        xhat = squeeze(xs2(:,j,:)) * W(j,:)'; % E(X(t)|S(t)=j,y(1:T)) @@@@@@@@
+%         xs1(:,j) = W(j,:) * squeeze(xs2(:,j,:)); % @@@@@@@@@@@@
         for k = 1:M
-            xsb(:,k) = xs2(:,:,k) * U(:,k); % E(X(t)|S(t+1)=k,y(1:T))
-            for j = 1:M
-                m = xs2(:,j,k) - xsb(:,k);
-                Vhat(:,:,j) = U(j,k) * (Vs2(:,:,j,k) + (m*m.'));
-            end
-            Vsb(:,:,k) = sum(Vhat,3);
+            m = xs2(:,j,k) - xhat;
+            Vhat(:,:,k) = W(j,k) * (Vs2(:,:,j,k) + (m*m.'));
         end
-    else % case p = 1 
-        xs2_ = squeeze(xs2);
-        Vs2_ = squeeze(Vs2);
-        CVs2_ = squeeze(CVs2);
-        xs1 = sum(W .* xs2_,2).'; 
-        Vs1 = reshape(sum(W .* (Vs2_ + (xs2_ - xs1).^2),2),1,1,M);
-        CVs1 = reshape(sum(U .* CVs2_),1,p,M);
-        xsb = sum(U .* xs2_); 
-        Vsb = reshape(sum(U .* (Vs2_ + (xs2_ - xsb).^2)),1,1,M);         
+        xs1(:,j) = xhat;
+        Vs1(:,:,j) = sum(Vhat,3); % V(X(t)|S(t)=j,y(1:T))
+    end
+    % Cov(x(t+1),X(t)|S(t+1)=k,y(1:T))
+    % B/c of approximation E(x(t+1)|S(t)=j,S(t+1)=k,y(1:T)) ~= E(x(t+1)|S(t+1)=k,y(1:T)),
+    % Cov(x(t+1),X(t)|S(t+1)=k,y(1:T)) ~= sum(j=1:M) Cov(x(t+1),X(t)|S(t)=j,S(t+1)=k,y(1:T)) * U(j,k)
+    % with U(j,k) = P(S(t)=j|S(t+1)=k,y(1:T))
+    for k = 1:M  
+        for j = 1:M
+            CVhat(:,:,j) = U(j,k) * CVs2(:,:,j,k); 
+        end
+        CVs1(:,:,k) = sum(CVhat,3);
+    end    
+    % V(X(t)|S(t+1)=k,y(1:T))
+    for k = 1:M
+        xsb(:,k) = xs2(:,:,k) * U(:,k); % E(X(t)|S(t+1)=k,y(1:T))
+        for j = 1:M
+            m = xs2(:,j,k) - xsb(:,k);
+            Vhat(:,:,j) = U(j,k) * (Vs2(:,:,j,k) + (m*m.'));
+        end
+        Vsb(:,:,k) = sum(Vhat,3);
     end
     
     % Collapse M distributions to 1 
