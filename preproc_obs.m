@@ -326,6 +326,7 @@ for i = 1:8
     % Represent fixed coefficients as matrix with 2 columns, 1st with
     % indices of fixed coefficients, 2nd with their values
     idx = find(~isnan(fixed_i));
+    fixed_i = fixed_i(:);
     fixed0.(name) = [idx,fixed_i(idx)];
     
     % If all coefficients are fixed, set 'skip' to true (else false)
