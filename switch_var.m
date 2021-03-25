@@ -131,10 +131,8 @@ end
 % Special case M = 1
 if M == 1
     Mf = ones(1,T); Ms = Mf; Sf = Mf; Ss = Mf;
-    [Ahat,Qhat,muhat,Sigmahat,LL] = ... 
-        fast_var(y,M,p,Ss,control,equal,fixed,scale);
-    outpars = struct('A',Ahat,'Q', Qhat, 'mu', muhat, ...
-        'Sigma', Sigmahat, 'Pi', 1, 'Z', 1);
+    [outpars,LL] = fast_var(y,M,p,Ss,control,equal,fixed,scale);
+    outpars.Pi = 1; outpars.Z = 1;
     return
 end
 

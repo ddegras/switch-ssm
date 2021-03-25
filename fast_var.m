@@ -65,7 +65,7 @@ function [outpars,LL] = fast_var(y,M,p,S,control,equal,fixed,scale)
 %-------------------------------------------------------------------------%
 
 
-narginchk(4,12)
+narginchk(4,8)
 
 % Check that time series and regime history have same length
 assert(size(y,2) == numel(S))
@@ -98,8 +98,8 @@ end
 % Pilot estimate
 Pi = zeros(M,1);
 Pi(S(1)) = 1;
-pars = struct('A',zeros(N,p*N,M), 'C',zeros(N), 'Q',zeros(N,N,M), ...
-    'R',eye(N), 'mu',zeros(N,M), 'Sigma',repmat(eye(N),1,1,M), ...
+pars = struct('A',zeros(N,N,p,M), 'C',eye(N), 'Q',zeros(N,N,M), ...
+    'R',1e-10*eye(N), 'mu',zeros(N,M), 'Sigma',repmat(eye(N),1,1,M), ...
     'Pi',Pi, 'Z',eye(M));
 if ~isempty(fixed) && isstruct(fixed)
     parname = {'A','Q','mu','Sigma'};
@@ -109,6 +109,12 @@ if ~isempty(fixed) && isstruct(fixed)
             idx = ~isnan(fixed.(name));
             pars.(name)(idx) = fixed.(name)(idx);
         end
+    end
+    if isfield(fixed,'C')
+        fixed = rmfield(fixed,'C');
+    end
+    if isfield(fixed,'R')
+        fixed = rmfield(fixed,'R');
     end
 end
 
