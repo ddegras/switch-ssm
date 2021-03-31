@@ -102,7 +102,8 @@ y = y - mean(y,2);
 % We assume t the initial vectors x(1),...,x(p) are iid ~ N(mu,Sigma)
 % and  mutually independent with S(1),...,S(p).
 
-
+% Check that time series has same length as regime sequence
+assert(size(y,2) == numel(S));
 
 %@@@@@ Initialize optional arguments if not specified @@@@@%
 if ~exist('fixed','var')
@@ -135,13 +136,11 @@ pars = pars0;
 
 Pi = zeros(M,1);
 Pi(S(1)) = 1;
-fixed.Pi = Pi;
 pars.Pi = Pi;
-pars.Z = eye(M);
-fixed.Z = pars.Z;
+pars.Z = eye(M); 
 
 if any(structfun(@isempty,pars)) 
-    pars = init_dyn(y,M,p,r,[],control,equal,fixed,scale);
+    pars = reestimate_dyn(y,M,p,r,S,control,equal,fixed,scale);
 end
 
 [pars,control,equal,fixed,scale,skip] = ...
@@ -167,7 +166,11 @@ for j = 1:M
     Ms(j,S == j) = 1;
 end
 sum_Ms2 = zeros(M);
-
+for i = 1:M
+    for j = 1:M
+        sum_Ms2(i,j) = sum(S(1:T-1) == i & S(2:T) == j);
+    end
+end
 
 for i = 1:ItrNo
     
