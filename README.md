@@ -8,9 +8,10 @@ The user-level functions of the package are of the form `xxx_yyy`, where the pre
 The possible prefixes are: 
 - `init`: find starting values for EM algorithm
 - `switch`: fit EM algorithm
-- `fast`: fit EM algorithm for a single fixed regime history
-- `reestimate`: estimate model parameters by least squares for a single fixed regime history
+- `fast`: fit EM algorithm with fixed regime sequence
+- `reestimate`: estimate model parameters by least squares with fixed regime sequence
 - `bootstrap`: perform parametric bootstrap   
+- `simulate`: simulate a realization of the model
 The possible suffixes are:   
 - `dyn`: switching dynamics model
 - `obs`: switching observations model 
