@@ -111,8 +111,8 @@ if ~skip.A
     Abig = diag(ones((p-1)*r,1),-r);
     for j = 1:M
         % Check eigenvalues
-        Abig(1:r,:,j) = Ahat(:,:,j);
-        eigval = eig(Abig(:,:,j));
+        Abig(1:r,:) = Ahat(:,:,j);
+        eigval = eig(Abig);
         if any(abs(eigval) > scale.A)
             if verbose
                 warning(['Eigenvalues of A%d greater than %f.',...

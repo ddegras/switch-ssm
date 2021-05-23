@@ -21,9 +21,8 @@ function [pars,Shat] = init_dyn(y,M,p,r,opts,control,equal,fixed,scale)
 % opts:  optional structure with fields:
 %       'segmentation':  with possible values 'fixed' (fixed segments) and
 %           'binary' (binary segmentation). Default = 'fixed'
-%       'len':  segment length. Only for fixed segmentation. 
-%       'delta':  minimal distance between two consecutive change points.
-%           Only for binary segmentation.
+%       'len':  segment length for fixed segmentation or minimal distance
+%           between two consecutive change points for binary segmentation.
 %       'tol':  minimum relative decrease in loss function for a point to be
 %           acceptable as change point. Only for binary segmentation. See
 %           function find_single_cp for more details.
@@ -40,15 +39,15 @@ function [pars,Shat] = init_dyn(y,M,p,r,opts,control,equal,fixed,scale)
 % 
 % OUTPUTS
 % pars: struct with fields
-%       A:  estimate of transition matrices (rxrxpxM)
-%       C:  estimate of observation matrix (Nxr with N = #rows in y) 
-%       Q:  estimate of state noise covariance matrices (rxrxM)
-%       R:  estimate of transition matrices (NxN)
-%       mu: estimate of initial mean of state vector (rx1)
-%       Sigma:  estimate of initial covariance of state vector (rxr)
-%       Pi: estimate of probabilities of initial state of Markov chain (Mx1)
-%       Z:  estimate of transition probabilities (MxM)
-% Shat: estimate of Markov chain states S(t) (Tx1)
+%       A:  estimated transition matrices (rxrxpxM)
+%       C:  estimated observation matrix (Nxr with N = #rows in y) 
+%       Q:  estimated state noise covariance matrices (rxrxM)
+%       R:  estimated observation noise covariance matrix (NxN)
+%       mu: estimated initial mean of state vector (rx1)
+%       Sigma:  estimated initial covariance of state vector (rxr)
+%       Pi: estimated probabilities of initial state of Markov chain (Mx1)
+%       Z:  estimated transition probabilities (MxM)
+% Shat: estimated Markov chain states S(t) (Tx1)
 %
 %--------------------------------------------------------------------------
 
@@ -73,6 +72,7 @@ assert(r<=N, 'Dimension of state vector ''r'' exceeds dimension of time series')
 assert(M<=T, 'Number of regimes ''M'' exceeds length of time series')
 assert(r<=T, 'Dimension of state vector ''r'' exceeds length of time series')
 assert(p<=T, 'VAR order ''p'' exceeds length of time series')
+assert(p>=1)
 
 % Disable warnings for (nearly) singular matrices
 warning('off','MATLAB:singularMatrix'); 
@@ -84,8 +84,8 @@ warning('off','MATLAB:nearlySingularMatrix');
 %     Set optional arguments to default values if not specified           %
 %-------------------------------------------------------------------------%
 
-opts0 = struct('segmentation','fixed','len',[],'tol',.05,...
-    'delta',max(2*p,floor(T/10)), 'UseParallel',false, 'Replicates',10);
+opts0 = struct('segmentation','fixed','len',min(5*p*r,floor(T/(2*M))),...
+    'tol',.05,'UseParallel',false,'Distance','cityblock', 'Replicates',10);
 if exist('opts','var') && isstruct(opts)
     fname = fieldnames(opts0);
     for i = 1:numel(fname)
@@ -212,9 +212,19 @@ if skip.A
     Ahat = reshape(fixed.A,r,p*r,M);
 % Case: M = 1 or active equality constraints on A
 elseif (equal.A || M == 1)
-    Ahat = (Y*X')/(X*X');
-    if any(isnan(Ahat(:))|isinf(Ahat(:)))
-        Ahat = (Y*X')*pinv(X*X');
+    % Check 'one in ten' rule
+    if (T-p) >= 10*p*r
+        Ahat = (Y*X')/(X*X');
+        if any(isnan(Ahat(:))|isinf(Ahat(:)))
+            Ahat = (Y*X')*pinv(X*X');
+        end
+    else
+        Ahat = zeros(r,p*r);
+        for k = 1:r
+            idx = k:r:k+(p-1)*r;
+            Ahat(r,idx) = (Y(k,:)*X(idx,:)')/(X(idx,:)*X(idx,:)');
+        end
+        Ahat(isnan(Ahat(:)) | isinf(Ahat(:))) = 0;
     end
 end
 
@@ -222,7 +232,10 @@ end
 if skip.Q
     Qhat = fixed.Q;
 elseif (equal.A && equal.Q) || M == 1 
-    Qhat = diag(var(Y-Ahat*X,0,2));
+    Qhat = var(Y-Ahat*X,1,2);
+    lb = min(control.abstol,max(Qhat)*control.reltol);
+    Qhat(Qhat < lb) = lb;
+    Qhat = diag(Qhat);
 end
 
 % Adjust the type of segmentation to be performed depending on equality
@@ -230,9 +243,8 @@ end
 % or if M = 1, no need for segmentation & clustering. 
 if (equal.A && equal.Q) || M == 1 || (skip.A && skip.Q)
     opts.segmentation = '';
-%     opts.segmentation = 'other';
-%     opts.reestimation = false;
 end
+Adiag = 0;
 
 switch opts.segmentation
     % Case: fixed segmentation
@@ -241,25 +253,15 @@ switch opts.segmentation
     % classification. Heuristic: segments must be long enough so that
     % parameters (A,Q) can be reasonably well estimated, yet short enough
     % so that most segments do not contain change points and can be used
-    % for subsequent clustering. Thumb rule: take segment length at
-    % least 6*p*r for accurate estimation and at most T/(3*M) for accurate
-    % clustering (this ensures at least 3 times as many segments as
-    % regimes/clusters).
-    % Segment length (# time points)
-    if ~isempty(opts.len)
-        len = opts.len;
-    else
-        lb = 6*p*r;
-        ub = floor(T/(3*M));        
-        len = min(max(lb,round(T/10)),ub);
-        len = min(max(len,p+1),floor(T/M));
-    end
-    % Starting points of segments
-    start = [1:len:T-p,T-p+1];
+    % for subsequent clustering. 
+    % Starting points of segments (accounting for shift by p)
+    len = opts.len;
+    start = [1:len:T-p,T-p+1];  
     % If last segment too short, collapse it with previous one
-    if (start(end) - start(end-1)) < .5 * len
-        start = setdiff(start,start(end-1));
+    if (T-p+1 - start(end-1)) < 0.9 * len 
+        start = [start(1:end-2),T-p+1];
     end
+
     % Number of segments
     I = length(start)-1; 
     % VAR estimation on each segment
@@ -271,37 +273,47 @@ switch opts.segmentation
     else
         Ahat = zeros(r,p*r,I);
     end
-%     if equal.Q
-%         Qhat = repmat(Qhat(:,:,1),[1,1,I]);
-%     else
-        Qhat = zeros(r,r,I);
-%     end
+    Qhat = zeros(r,r,I);
+    % Flag short segments: if segments too short to accurately estimate 
+    % full A, make estimate of A diagonal
+    Adiag = opts.len < 5*p*r; 
     for i = 1:I
         idx = start(i):start(i+1)-1;
         Xi = X(:,idx);
         Yi = Y(:,idx);
         % Estimated transition matrix A=[A1...Ap]
         if ~equal.A
-            Ai = (Yi*Xi')/(Xi*Xi'); 
-            if any(isnan(Ai(:)) | isinf(Ai(:)))
-                Ai = (Yi*Xi') * pinv(Xi*Xi');
+            if ~Adiag
+                Ai = (Yi*Xi')/(Xi*Xi'); 
+                if any(isnan(Ai(:)) | isinf(Ai(:)))
+                    Ai = (Yi*Xi') * pinv(Xi*Xi');
+                end
+            else
+                Ai = zeros(r,p*r);
+                for k = 1:r
+                    idx = k:r:k+(p-1)*r;
+                    Ai(k,idx) = (Yi(k,:)*Xi(idx,:)')/(Xi(idx,:)*Xi(idx,:)');
+                end
+                Ai(isnan(Ai(:)) | isinf(Ai(:))) = 0;
             end
             Ahat(:,:,i) = Ai;
         end
         % Estimated innovation covariance
-%         if ~equal.Q
-            Qhat(:,:,i) = diag(var(Yi-Ahat(:,:,i)*Xi,0,2)); 
-%         end
+        Qi = var(Yi-Ai*Xi,1,2);
+        lb = min(control.abstol,max(Qi)*control.reltol);
+        Qi(Qi < lb) = lb;
+        Qhat(:,:,i) = diag(Qi); 
     end   
     if equal.Q
         Qhat = repmat(mean(Qhat,3),1,1,I);
     end
-    start = start+p; 
+    % Shift back segment starts
+    start = start+p;
     start(1) = 1;
 
     case 'binary'
     % Case: binary segmentation
-    [Atmp,Qtmp,start] = find_all_cp(X,Y,opts.delta,opts.tol);
+    [Atmp,Qtmp,start] = find_all_cp(X,Y,opts.len,opts.tol);
     start = start+p; 
     start(1) = 1;
     I = length(start)-1;
@@ -334,7 +346,7 @@ elseif skip.A && skip.Q
     sse = zeros(M,T-p);
     for j = 1:M
         E = Y - Ahat(:,:,j) * X;
-        Lj = (chol(Qhat(:,:,j)))';
+        Lj = chol(Qhat(:,:,j),'lower');
         sse(j,:) = sum((Lj\E).^2);
     end
     [~,Shat] = min(sse);
@@ -351,7 +363,12 @@ else
     % divide all segment lengths by the shortest and replicate accordingly
 %     start = start(:);
     segment_len = diff(start);
-    new_len = round(segment_len/min(segment_len));
+    switch opts.segmentation
+        case 'fixed'
+            new_len = ones(1,I);
+        case 'binary'     
+            new_len = round(10*segment_len/min(segment_len));
+    end
     Thetahat = cell(I,1);
     for i = 1:I
 %         AQ = [Ahat(:,:,i),Qhat(:,:,i)];
@@ -369,7 +386,7 @@ else
     
     % K-means clustering
     [Shat,~] = kmeans(Thetahat,M,'Replicates',opts.Replicates,...
-        'Options',opts.UseParallel); 
+        'Distance',opts.Distance, 'Options',opts.UseParallel); 
     clear Thetahat
    
     % If S(1)!=1, say S(1)=j, swap cluster labels 1 and j so that S(1)=1 
@@ -397,6 +414,12 @@ end
 %-------------------------------------------------------------------------%
 
 
+% Case: time series too short to accurately estimate full A
+if Adiag && isempty(fixed.A)
+    mask = diag(NaN(r,1));
+    fixed.A = repmat(mask,[1,1,p,M]);
+end
+
 pars = reestimate_dyn(y,M,p,r,Shat,control,equal,fixed,scale);
 
 % Estimate initial probabilities Pi and transition probabilities Z
@@ -404,8 +427,8 @@ pars = reestimate_dyn(y,M,p,r,Shat,control,equal,fixed,scale);
 Pihat = ones(M,1) * .01;
 Pihat(Shat(1)) = 1;
 Pihat = Pihat / sum(Pihat);
-Pihat = round(Pihat,6);
-Pihat(1) = 1 - sum(Pihat(2:end));
+% Pihat = round(Pihat,6);
+% Pihat(1) = 1 - sum(Pihat(2:end));
 if ~isempty(fixed.Pi)
     idx = ~isnan(fixed.Pi);
     Pihat(idx) = fixed.Pi(idx);
@@ -426,8 +449,8 @@ for i=1:M
         Zi(Zi < lb) = lb;
         % Rescale so that row sums are 1
         Zi = Zi/sum(Zi);
-        Zi = round(Zi,6);
-        Zi(1) = 1 - sum(Zi(2:M));
+%         Zi = round(Zi,6);
+%         Zi(1) = 1 - sum(Zi(2:M));
         Zhat(i,:) = Zi;
 end
 if ~isempty(fixed.Z)
@@ -472,7 +495,7 @@ end
 % 1:t-1, and t:T, respectively, and denote by SSE0, SSE1(t), and SSE2(t)
 % the associated sum of squared errors. The candidate change point t0 is
 % the time point that minimizes SSE1(t) + SSE2(t). It is accepted as a
-% change point if (SSE1(t0)+SSE2(t0)) <= tol * SSE0.
+% change point if (SSE1(t0)+SSE2(t0)) <= (1-tol) * SSE0.
 % If no change point is found, the function returns the time point 1.
 % In particular, there can be no change point if 2*delta > T. 
 
@@ -480,13 +503,18 @@ end
 function cp = find_single_cp(X,Y,delta,tol)
 
 % Data dimensions
-[~,T] = size(Y);
+T = size(Y,2);
 
 % Check that search interval is long enough (at least twice delta)
-cp = 1;
-if T < (2*delta)
+% cp = 1;
+cp = []; % @@@@@@ dev
+if T < 2*delta
     return
 end
+
+% Make estimate of A diagonal if not enough observations to estimate A
+% accurately
+Adiag = delta < 5 * size(X,1);
 
 % Initialization
 YX = Y*X'; % sum(i=1:n) Y(i)X(i)'
@@ -523,8 +551,10 @@ end
 
 % Check that candidate change point achieves sufficient reduction in
 % loss function
-if (sse_best > (1-tol)*sse0 || cp <= delta || cp >= T-delta)
-    cp = 1;
+if sse_best > (1-tol) * sse0 % @@@@@@@@ dev
+% if (sse_best > (1-tol)*sse0 || cp <= delta || cp >= T-delta)
+    cp = []; % @@@@@@ dev 
+%     cp = 1;
 end
 
 end
@@ -568,19 +598,23 @@ function [Ahat,Qhat,cp] = find_all_cp(X,Y,delta,tol)
 % p = size(X,1)/size(Y,1);
 
 % Initial change points
-cp = [1 T+1];
+cp = [1,T+1];
 
 % Search for change points
 while 1 
     cp_old = cp;
     I = length(cp)-1; % number of segments
-    cp_new = zeros(1,I);
+%     cp_new = zeros(1,I);
+    cp_new = []; % @@@@@@ dev
     for i=1:I
-        ind = cp(i):cp(i+1)-1;
-        pos = find_single_cp(X(:,ind),Y(:,ind),delta,tol);
-        cp_new(i) = cp(i)-1+pos;
+        idx = cp(i):cp(i+1)-1;
+        pos = find_single_cp(X(:,idx),Y(:,idx),delta,tol);
+        if ~isempty(pos) % @@@@@@ dev
+            cp_new = [cp_new,cp(i)-1+pos]; %#ok<AGROW>
+        end
+%         cp_new(i) = cp(i)-1+pos;
     end
-    cp = unique([cp cp_new]);
+    cp = sort(unique([cp,cp_new]));
     if isequal(cp_old,cp)
         break
     end
@@ -591,9 +625,9 @@ I = length(cp)-1;
 Ahat = zeros(N,size(X,1),I);
 Qhat = zeros(N,N,I);
 for i=1:I
-    ind = cp(i):cp(i+1)-1;
-    Xi = X(:,ind);
-    Yi = Y(:,ind);
+    idx = cp(i):cp(i+1)-1;
+    Xi = X(:,idx);
+    Yi = Y(:,idx);
     Ai = (Yi*Xi')/(Xi*Xi');
     if any(isnan(Ai))
         Ai = (Yi*Xi')*pinv(Xi*Xi');

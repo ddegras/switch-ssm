@@ -4,4 +4,7 @@ try
 catch
     xinv = pinv(x);
 end
+
+if any(isnan(xinv(:)))
+    xinv = pinv(x);
 end

@@ -1,5 +1,5 @@
-function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-    bootstrap_obs(pars,T,B,control,equal,fixed,scale,parallel)
+function [outpars,LL] = ... 
+    bootstrap_obs(pars,T,B,opts,control,equal,fixed,scale,parallel)
 
 %-------------------------------------------------------------------------%
 %
@@ -16,8 +16,8 @@ function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %           (re)estimated by maximum likelihood. ML estimation is 
 %           implemented via the EM algorithm. 
 %  
-% Usage:    [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot]...
-%               = bootstrap_obs(A,C,Q,R,mu,Sigma,Pi,Z,T,B,control,equal,...
+% Usage:    [outpars,LL]...
+%               = bootstrap_obs(pars,T,B,opts,control,equal,...
 %                   fixed,scale,parallel)
 %
 %  Inputs:   pars - structure of estimated model parameters with fields 'A',
@@ -89,7 +89,7 @@ function [Aboot,Cboot,Qboot,Rboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 
 
 % Check number of arguments
-narginchk(3,8);
+narginchk(3,9);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
@@ -115,107 +115,110 @@ end
 if ~exist('parallel','var')
     parallel = false;
 end
+if ~exist('opts','var')
+    opts = [];
+end
 
 % Model dimensions
-M = numel(pars.Pi);
-[N,r] = size(pars.C);
-p = size(pars.A,3);
+N = size(pars.C,1);
+[r,~,p,M] = size(pars.A);
 
 % Bootstrap estimates
-Aboot = zeros(r,r,p,M,B);
-Cboot = zeros(N,r,M,B);
-Qboot = zeros(r,r,M,B);
-Rboot = zeros(N,N,B);
-muboot = zeros(r,M,B);
-Sigmaboot = zeros(r,r,M,B);
-Piboot = zeros(M,B);
-Zboot = zeros(M,M,B);
-LLboot = zeros(B,1);
-warning('off');
+Aboot = NaN(r,r,p,M,B);
+Cboot = NaN(N,r,M,B);
+Qboot = NaN(r,r,M,B);
+Rboot = NaN(N,N,B);
+muboot = NaN(r,M,B);
+Sigmaboot = NaN(r,r,M,B);
+Piboot = NaN(M,B);
+Zboot = NaN(M,M,B);
+LLboot = NaN(B,1);
+warning('off')
 
 % Set up parallel pool if needed
-if parallel     
-    pool = gcp('nocreate');
-    if isempty(pool)
-        pool = gcp;
-    end
-    poolsize = pool.NumWorkers;
-    control.verbose = false;
-else
-    poolsize = 0;
-end
- 
-% Choleski decompositions
-LQ = zeros(r,r,M);
-for j = 1:M
-    LQ(:,:,j) = chol(pars.Q(:,:,j),'lower');
-end
-LR = chol(pars.R,'lower');
+% if parallel     
+%     pool = gcp('nocreate');
+%     if isempty(pool)
+%         pool = gcp;
+%     end
+%     poolsize = pool.NumWorkers;
+%     control.verbose = false;
+% else
+%     poolsize = 0;
+% end
 
+% Initialize progress bar if required
+if verbose && parallel  
+    parfor_progress(B);
+end
 
-parfor (b=1:B, poolsize) 
-    
-    % Initialize progress bar if required
-    if verbose && parallel  
-        parfor_progress(B);
-    end
-    
-    % Temporary variables
-    pars1 = pars;
-    A = reshape(pars1.A,r,p*r,M);
-    C = pars1.C;
-    LQ1 = LQ;
-    LR1 = LR;
-    Xtm1 = zeros(p*r,M);
-    y = zeros(N,T);
-    
-    % Parametric bootstrap
-    cumZ = cumsum(pars1.Z,2); cumZ(:,M) = 1;
-    for t = 1:T
-        if t == 1
-            c = cumsum(pars1.Pi); c(M) = 1;
-            St = sum(rand(1) > c) + 1;
-            for j = 1:M
-                Xtm1(:,j) = mvnrnd(pars1.mu(:,j)',pars1.Sigma(:,:,j),p);
-                Xtm1(:,j) = reshape(Xtm1(:,j)',p*r,1);
-            end
-            xt = Xtm1(1:r,:);
-        else
-            Stm1 = St;
-            c = cumZ(Stm1,:);              
-            St = sum(rand(1) > c) + 1;        
-            for j = 1:M             
-                vtj = LQ1(:,:,j) * randn(r,1);
-                xt(:,j) = A(:,:,j) * Xtm1(:,j) + vtj;
-            end
-            Xtm1 = vertcat(xt,Xtm1(1:(p-1)*r,:));
+% MAIN LOOP
+if parallel 
+    parfor b = 1:B 
+       
+        % Parametric bootstrap
+        y = simulate_obs(pars,T);
+
+        % EM algorithm
+        try
+            pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);
+            [~,~,~,~,~,~,parsboot,LL] = ... 
+                    switch_obs(y,M,p,r,pars0,control,equal,fixed,scale);   
+        catch
+            continue
         end
-        y(:,t) = C(:,:,St) * xt(:,St) + LR1 * randn(N,1);
-    end   
+        Aboot(:,:,:,:,b) = parsboot.A;
+        Cboot(:,:,:,b) = parsboot.C;
+        Qboot(:,:,:,b) = parsboot.Q;
+        Rboot(:,:,b) = parsboot.R;
+        muboot(:,:,b) = parsboot.mu;
+        Sigmaboot(:,:,:,b) = parsboot.Sigma;
+        Piboot(:,b) = parsboot.Pi;
+        Zboot(:,:,b) = parsboot.Z;
+        LLboot(b) = max(LL);
 
-    % EM algorithm
-    [~,~,~,~,~,~,parsboot,LL] = ... 
-            switch_obs(y,M,p,r,pars,control,equal,fixed,scale);   
-    Aboot(:,:,:,:,b) = parsboot.A;
-    Cboot(:,:,b) = parsboot.C;
-    Qboot(:,:,:,b) = parsboot.Q;
-    Rboot(:,:,b) = parsboot.R;
-    muboot(:,:,b) = parsboot.mu;
-    Sigmaboot(:,:,:,b) = parsboot.Sigma;
-    Piboot(:,b) = parsboot.Pi;
-    Zboot(:,:,b) = parsboot.Z;
-    LLboot(b) = max(LL);
-    
-    % Display progress if required
-    if verbose && parallel
-        parfor_progress;  
+        % Display progress if required
+        if verbose && parallel
+            parfor_progress;  
+        end     
+    end
+else 
+    for b = 1:B 
+       
+        % Parametric bootstrap
+        y = simulate_obs(pars,T);
+
+        % EM algorithm
+        try
+            pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);
+            [~,~,~,~,~,~,parsboot,LL] = ... 
+                    switch_obs(y,M,p,r,pars0,control,equal,fixed,scale);   
+        catch
+            continue
+        end
+        Aboot(:,:,:,:,b) = parsboot.A;
+        Cboot(:,:,:,b) = parsboot.C;
+        Qboot(:,:,:,b) = parsboot.Q;
+        Rboot(:,:,b) = parsboot.R;
+        muboot(:,:,b) = parsboot.mu;
+        Sigmaboot(:,:,:,b) = parsboot.Sigma;
+        Piboot(:,b) = parsboot.Pi;
+        Zboot(:,:,b) = parsboot.Z;
+        LLboot(b) = max(LL);
+
+        % Display progress if required
+        if verbose && parallel
+            parfor_progress;  
+        end     
     end
 end
+
+outpars = struct('A',Aboot, 'C',Cboot, 'Q',Qboot, 'R',Rboot, 'mu',muboot, ...
+    'Sigma',Sigmaboot, 'Pi',Piboot, 'Z',Zboot);
+LL = LLboot;
 
 if verbose && parallel
     parfor_progress(0);
-end
-
 end
 
 

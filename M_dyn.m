@@ -457,7 +457,9 @@ end
 
 
 if ~skip.Z
-    outpars.Z = sum_Ms2 ./ repmat(sum(sum_Ms2,2),1,M);
+    Zhat = sum_Ms2 ./ repmat(sum(sum_Ms2,2),1,M);
+    Zhat(isnan(Zhat)) = 1/M;
+    outpars.Z = Zhat;
     if ~isempty(fixed.Z)
         outpars.Z(fixed.Z(:,1)) = fixed.Z(:,2);
     end

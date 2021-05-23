@@ -210,7 +210,7 @@ for i = 1:ItrNo
     
     % Log-likelihood
     LL(i) = L; 
-
+    
     % Needed for Q-function
     sum_xy = xs(1:r,:) * y.';
 
@@ -253,8 +253,8 @@ for i = 1:ItrNo
 
 
 
-
-    pars = M_dyn(pars,MP0,Ms,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,...
+    parsold = pars;
+    pars = M_dyn(parsold,MP0,Ms,Mx0,sum_MCP,sum_MP,sum_MPb,sum_Ms2,...
         sum_P,sum_xy,sum_yy,control,equal,fixed,scale,skip);
 
     % Display Q-function if required 

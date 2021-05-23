@@ -1,5 +1,5 @@
-function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-    bootstrap_var(pars,T,B,control,equal,fixed,scale,parallel)
+function [outpars,LL] = ... 
+    bootstrap_var(pars,T,B,opts,control,equal,fixed,scale,parallel)
 
 %-------------------------------------------------------------------------%
 %
@@ -14,8 +14,8 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %           v(t,S(t)) is a noise term. The model parameters are estimated
 %           by maximum likelihood (EM algorithm). 
 %  
-% Usage:    [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ... 
-%               bootstrap_var(pars,T,B,control,equal,fixed,scale,parallel)
+% Usage:    [outpars,LL] = ... 
+%               bootstrap_var(pars,T,B,opts,control,equal,fixed,scale,parallel)
 %
 %  Inputs:  pars - structure of estimated model parameters with fields 'A',
 %               'Q','mu','Sigma','Pi', and 'Z'. Typically, this  
@@ -60,13 +60,14 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 %                       process.
 %                   
 %                   
-% Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
-%           Qboot - Bootstrap distribution of Q (size rxrxMxB)
-%           muboot - Bootstrap distribution of mu (size rxMxB) 
-%           Sigmaboot - Bootstrap distribution of Sigma (size rxrxMxB)
-%           Piboot - Bootstrap distribution of Pi (size MxB)
-%           Zboot - Bootstrap distribution of Z (size MxMxB)
-%           LLboot - Bootstrap distribution of attained maximum log-
+% Outputs:  outpars - struct with fields 
+%		A - Bootstrap distribution of A (size rxrxpxMxB)
+%           	Q - Bootstrap distribution of Q (size rxrxMxB)
+%           	mu - Bootstrap distribution of mu (size rxMxB) 
+%           	Sigma - Bootstrap distribution of Sigma (size rxrxMxB)
+%           	Pi - Bootstrap distribution of Pi (size MxB)
+%           	Z - Bootstrap distribution of Z (size MxMxB)
+%           LL - Bootstrap distribution of attained maximum log-
 %           likelihood (size 1xB)
 %                    
 % Author:   David Degras, david.degras@umb.edu
@@ -76,7 +77,7 @@ function [Aboot,Qboot,muboot,Sigmaboot,Piboot,Zboot,LLboot] = ...
 
 
 % Check number of arguments
-narginchk(3,8);
+narginchk(3,9);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
@@ -98,6 +99,9 @@ if ~exist('fixed','var')
 end
 if ~exist('scale','var')
     scale = [];
+end
+if ~exist('opts','var')
+    opts = [];
 end
 if ~exist('parallel','var')
     parallel = false;
@@ -128,55 +132,31 @@ else
     poolsize = 0;
 end
  
-% Auxiliary quantities
-LQ = zeros(r,r,M);
-for j = 1:M
-    LQ(:,:,j) = chol(pars.Q(:,:,j),'lower');
+% Initialize progress bar if required
+if verbose && parallel  
+    parfor_progress(B);
 end
 
-parfor (b=1:B, poolsize) 
-    
-    % Initialize progress bar if required
-    if verbose && parallel  
-        parfor_progress(B);
-    end
-    
-    % Temporary variables
-    pars1 = pars;
-    A = reshape(pars1.A,r,p*r,M);
-    LQ_ = LQ;
-    x = zeros(r,T);
-    Xtm1 = [];
-    cumZ = cumsum(pars1.Z,2);
-        
+
+parfor (b=1:B, poolsize)
+            
     % Parametric bootstrap
-    for t=1:T       
-        if t == 1
-            c = cumsum(Pi); c(M) = 1;
-        else        
-            Stm1 = St;
-            c = cumZ(Stm1,:);
-        end          
-        St = sum(rand(1) > c) + 1;        
-        if t <= p
-            x(:,t) = mvnrnd(pars1.mu(:,St)',pars1.Sigma(:,:,St))';
-            Xtm1 = [x(:,t) ; Xtm1];
-        else
-            vt = LQ_(:,:,St) * randn(N,1);
-            x(:,t) = A(:,:,St) * Xtm1 + vt;
-            Xtm1 = [x(:,t) ; Xtm1(1:(p-1)*r)];               
-        end        
-    end       
+    y = simulate_var(pars,T);
         
     % EM algorithm 
-    [~,~,~,~,Ab,Qb,mub,Sigmab,Pib,Zb,LL] = ... 
-            switch_var(x,M,p,pars,control,equal,fixed,scale);   
-    Aboot(:,:,:,:,b) = Ab;
-    Qboot(:,:,:,b) = Qb;
-    muboot(:,:,b) = mub;
-    Sigmaboot(:,:,:,b) = Sigmab;
-    Piboot(:,b) = Pib;
-    Zboot(:,:,b) = Zb;
+    try 
+	pars0 = init_var(y,M,p,opts,control,equal,fixed,scale);
+    	[~,~,~,~,parsboot,LL] = ... 
+            switch_var(y,M,p,pars0,control,equal,fixed,scale); 
+    catch
+	continue
+    end  
+    Aboot(:,:,:,:,b) = parsboot.A;
+    Qboot(:,:,:,b) = parsboot.Q;
+    muboot(:,:,b) = parsboot.mu;
+    Sigmaboot(:,:,:,b) = parsboot.Sigma;
+    Piboot(:,b) = parsboot.Pi;
+    Zboot(:,:,b) = parsboot.Z;
     LLboot(b) = max(LL);
 
     % Display progress if required
@@ -184,7 +164,11 @@ parfor (b=1:B, poolsize)
         parfor_progress;
     end
 end
-    
+
+outpars = struct('A',Aboot, 'Q',Qboot, 'mu',muboot, 'Sigma',Sigmaboot, ...
+     'Pi',Piboot, 'Z',Zboot);
+LL = LLboot;
+
 if verbose && parallel
     parfor_progress(0);
 end

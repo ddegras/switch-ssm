@@ -1,4 +1,4 @@
-function [ACF,COH,COV,VAR] = get_covariance(A,C,Q,R,lagmax,nfreq)
+function [ACF,COH,COV,VAR] = get_covariance(pars,lagmax,nfreq)
 
 %-------------------------------------------------------------------------%
 %
@@ -9,10 +9,11 @@ function [ACF,COH,COV,VAR] = get_covariance(A,C,Q,R,lagmax,nfreq)
 %
 % Usage:    [ACF,COH,COV,VAR] = get_covariance(A,C,Q,R,lagmax,nfreq)
 %
-% Inputs:   A - transition matrices ([r,r,p,M])
-%           C - observation matrices ([N,r], [N,r,M], or [])
-%           Q - state noise covariance matrices ([N,N,M]) 
-%           R - observation noise covariance matrix ([N,N] or [])
+% Inputs:   pars - struct with fields  
+%               A - transition matrices ([r,r,p,M])
+%               C - observation matrices ([N,r], [N,r,M], or [])
+%               Q - state noise covariance matrices ([N,N,M]) 
+%               R - observation noise covariance matrix ([N,N] or [])
 %           lagmax - maximum lag for autocorrelation function (optional, 
 %               default = 2000) 
 %           nfreq - number of frequencies at which to calculate coherence
@@ -25,8 +26,22 @@ function [ACF,COH,COV,VAR] = get_covariance(A,C,Q,R,lagmax,nfreq)
 %
 %-------------------------------------------------------------------------%
 
-narginchk(4,6);
+narginchk(1,3);
 
+assert(isstruct(pars))
+
+A = pars.A;
+Q = pars.Q;
+if isfield(pars,'C')
+    C = pars.C;
+else
+    C = [];
+end
+if isfield(pars,'R')
+    R = pars.R;
+else
+    R = [];
+end
 if ~exist('lagmax','var') || isempty(lagmax)
     lagmax = 2000;
 end
@@ -51,12 +66,14 @@ end
     
 
 % Initialize various quantities
-ACF = zeros(N,lagmax+1,M); % auto-correlation diag(cor(x(t),x(t-l)|S(t)=j)
-COH = zeros(N,N,nfreq,M); % coherence
-COV = zeros(N,N,M); % instantaneous covariance Cov(x(t)|S(t)=j)
+ACF = NaN(N,lagmax+1,M); % auto-correlation diag(cor(x(t),x(t-l)|S(t)=j)
+COH = NaN(N,N,nfreq,M); % coherence
+COV = NaN(N,N,M); % instantaneous covariance Cov(x(t)|S(t)=j)
 Abig = zeros(p*r); % container for A 
+invAbig = zeros(p*r);
 if p > 1
     Abig(r+1:end,1:end-r) = eye((p-1)*r);
+    invAbig(1:end-r,r+1:end) = eye((p-1)*r);
 end
 Qbig = zeros(p*r); % container for Q
 idx_acf = (repmat(eye(N),1,1,lagmax+1) == 1);
@@ -64,10 +81,26 @@ idx_coh = (repmat(eye(N),1,1,nfreq) == 1);
 
 % Calculations
 for j = 1:M
-    Abig(1:r,:) = reshape(A(:,:,:,j),r,p*r); 
+    A_j = A(:,:,:,j);
+    Abig(1:r,:) = reshape(A_j,r,p*r); 
     Qbig(1:r,1:r) = Q(:,:,j);
-    B = (Abig.' * Abig)\(Abig.');
-    Vbig = sylvester(B,-Abig.',B*Qbig); % Cov(X(t)|S(t)=j)
+    if all(A_j(:) == 0)
+        Vbig = Qbig;
+    else
+        eigA = abs(eig(Abig));
+        if any(eigA >= 1) 
+            continue
+        elseif min(eigA) <= 1e-8 * max(1,max(eigA)) % case: Abig numerically singular
+            Vbig = get_covariance_aux(A_j,Q(:,:,j)); % Cov(X(t)|S(t)=j)
+        else % case: Abig full rank
+            invAbig((p-1)*r+1:p*r,1:r) = inv(A_j(:,:,p));
+            if p > 1
+                invAbig((p-1)*r+1:p*r,r+1:p*r) = ...
+                    -A_j(:,:,p)\Abig(1:r,1:(p-1)*r);
+            end
+            Vbig = sylvester(invAbig,-Abig',invAbig*Qbig); 
+        end
+    end        
     Vbig = 0.5 * (Vbig + Vbig.');
     if isempty(C)
         COV(:,:,j) = Vbig(1:r,1:r);

@@ -180,7 +180,6 @@ safe = control.safe;
 
 
 
-
 %@@@@@ Initialize other quantities @@@@@%
 
 LL = zeros(1,ItrNo); % Log-likelihood
@@ -260,7 +259,6 @@ for i=1:ItrNo
 
     pars = M_obs(pars,Ms,P0,sum_CP,sum_MP,sum_Ms2,sum_Mxy,sum_P,...
         sum_Pb,sum_yy,x0,control,equal,fixed,scale,skip);
-
  
     % Evaluate and display Q-function value if required 
     if verbose
