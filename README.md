@@ -11,7 +11,8 @@ The possible prefixes are:
 - `fast`: fit EM algorithm with fixed regime sequence
 - `reestimate`: estimate model parameters by least squares with fixed regime sequence
 - `bootstrap`: perform parametric bootstrap   
-- `simulate`: simulate a realization of the model
+- `simulate`: simulate a realization of the model      
+
 The possible suffixes are:   
 - `dyn`: switching dynamics model
 - `obs`: switching observations model 
