@@ -88,8 +88,7 @@ clear vt wt Xtm1
 
 
 % Run EM
-[Mf,Ms,Sf,Ss,xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,LL] = ... 
-    switch_dyn(y,M,p,r);
+[Mf,Ms,Sf,Ss,xf,xs,theta,LL] = switch_dyn(y,M,p,r);
   
 
 
@@ -123,20 +122,19 @@ fixed = struct('Q',repmat(diag(NaN(r,1)),[1,1,M]),'R',diag(NaN(N,1)));
 scale = struct('A',.98,'C',1);
 
 % Find starting parameters for EM
-[A0,C0,Q0,R0,mu0,Sigma0,Pi0,Z0,S0] = ...
-    init_dyn(y,M,p,r,opts,[],equal,fixed,scale); 
+[theta0,S0] = init_dyn(y,M,p,r,opts,[],equal,fixed,scale); 
 
 % Fix mu and Sigma to their pilot estimates (these parameters are usually
 % not relevant and fixing them can help the numerical stability of the EM
-fixed.mu = mu0; 
-fixed.Sigma = Sigma0;
+fixed.mu = theta0.mu; 
+fixed.Sigma = theta0.Sigma;
 
 % Set number of EM iterations to 10^4, turn off display of EM progress 
 control = struct('ItrNo',1e4,'verbose',0);
 
 % Run EM (first pass)
-[Mf,Ms,Sf,Ss,xf,xs,Ahat,Chat,Qhat,Rhat,muhat,Sigmahat,Pihat,Zhat,LL] = ... 
-    switch_dyn(y,M,p,r,A0,C0,Q0,R0,mu0,Sigma0,Pi0,Z0,control,equal,fixed,scale); %#ok<*ASGLU>
+[Mf,Ms,Sf,Ss,xf,xs,theta1,LL] = ...
+    switch_dyn(y,M,p,r,theta0,control,equal,fixed,scale); %#ok<*ASGLU>
 
 % Run deterministic annealing EM (DAEM): useful to check if EM got stuck in
 % local optimum of likelihood function. During EM iterations, smoothing
@@ -144,12 +142,11 @@ control = struct('ItrNo',1e4,'verbose',0);
 % rescaled with beta = beta0^(betarate^(k-1)) on k-th EM iteration. This
 % prevents the EM to converge too fast. See help page of switch_dyn for
 % other arguments in 'control'
-control2 = struct('eps',1e-8,'ItrNo',1000,'beta0',.9,'betarate',.9,...
+control2 = struct('eps',1e-8,'ItrNo',1000,'beta0',.85,'betarate',1.02,...
     'abstol',1e-8,'reltol',1e-8,'safe',false,'verbose',0);
 
-[Mf2,Ms2,Sf2,Ss2,xf2,xs2,Ahat2,Chat2,Qhat2,Rhat2,muhat2,Sigmahat2,...
-    Pihat2,Zhat2,LL2] = switch_dyn(y,M,p,r,Ahat,Chat,Qhat,Rhat,...
-        muhat,Sigmahat,Pihat,Zhat,control2,equal,fixed,scale);
+[Mf2,Ms2,Sf2,Ss2,xf2,xs2,theta2,LL2] = switch_dyn(y,M,p,r,theta1,...
+    control2,equal,fixed,scale);
 
 % Check if DAEM has improved upon first EM pass
 disp(LL2(end));
@@ -170,10 +167,10 @@ disp(LL(end));
 % (the complex eigenvalues should not be to close to 1 in modulus)
 for j = 1:M
     if  p == 1
-        e = eig(Ahat2(:,:,:,j));
+        e = eig(theta2.A(:,:,:,j));
     else
         Abig = zeros(p*r,p*r);
-        Abig(1:r,:) = reshape(Ahat2(:,:,:,j),r,p*r);
+        Abig(1:r,:) = reshape(theta2.A(:,:,:,j),r,p*r);
         Abig(r+1:p*r,1:(p-1)*r) = eye((p-1)*r);
         e = eig(Abig);
     end
@@ -187,30 +184,15 @@ end
 plot(Ss2);
 
 
-% Estimate steady-state variance-covariance matrix V(x(t)|S(t)=j) for
-% regime j, j=1:M
-VX = zeros(p*r,p*r,M); % V(X(t)|S(t)=j) with X(t)=(x(t),...,x(t-p+1))
-for j = 1:M
-    if p == 1
-        Aj = Ahat2(:,:,1,j);
-        B = Aj/(Aj'*Aj);
-        VX(:,:,j) = sylvester(A,-B,-Qhat2(:,:,j)*B);
-    else
-        Abig = zeros(p*r,p*r);
-        Abig(1:r,:) = reshape(Ahat(:,:,:,j),r,p*r);
-        Abig(r+1:p*r,1:(p-1)*r) = eye((p-1)*r);
-        Qbig = zeros(p*r,p*r);
-        Qbig(1:r,1:r) = Qhat2(:,:,j);
-        B = Abig/(Abig'*Abig);
-        VX(:,:,j) = sylvester(Abig,-B,-Qbig*B);
-    end
-end
-Vx = VX(1:r,1:r,:); % V(x(t)|S(t)=j)
+% Estimate steady-state autocorrelation and covariance structures for state 
+% vector x and observation vector y in each regime 
+% lim V(x(t)|S(1:t)=j), lim V(y(t)|S(1:t)=j), j=1:M, t -> infinity
+lagmax = 10; nfreq = 0;
+theta2_AQ = struct('A',theta2.A, 'Q', theta2.Q); 
+[ACFx,~,Vx] = get_covariance(theta2_AQ,lagmax,nfreq);
+[ACFy,~,Vy] = get_covariance(theta2,lagmax,nfreq);
 
 
-
-
-    
     
 
 
