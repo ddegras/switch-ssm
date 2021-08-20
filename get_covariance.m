@@ -7,7 +7,7 @@ function [ACF,COH,COV,VAR] = get_covariance(pars,lagmax,nfreq)
 %           y(t) = C(S(t)) x(t) + w(t)
 %           x(t) = A(1,S(t)) x(t-1) + ... + A(p,S(t)) x(t-p) + v(t)
 %
-% Usage:    [ACF,COH,COV,VAR] = get_covariance(A,C,Q,R,lagmax,nfreq)
+% Usage:    [ACF,COH,COV,VAR] = get_covariance(pars,lagmax,nfreq)
 %
 % Inputs:   pars - struct with fields  
 %               A - transition matrices ([r,r,p,M])
