@@ -1,5 +1,5 @@
 function [outpars,LL] = ... 
-    bootstrap_obs(pars,T,B,opts,control,equal,fixed,scale,parallel)
+    bootstrap_obs(pars,T,B,opts,control,equal,fixed,scale,parallel,match)
 
 %-------------------------------------------------------------------------%
 %
@@ -18,7 +18,7 @@ function [outpars,LL] = ...
 %  
 % Usage:    [outpars,LL]...
 %               = bootstrap_obs(pars,T,B,opts,control,equal,...
-%                   fixed,scale,parallel)
+%                   fixed,scale,parallel,match)
 %
 %  Inputs:   pars - structure of estimated model parameters with fields 'A',
 %               'C','Q','R','mu','Sigma','Pi', and 'Z'. Typically, this  
@@ -67,6 +67,9 @@ function [outpars,LL] = ...
 %                       process.
 %                   'C': value of the (Euclidean) column norms of the 
 %                       matrices C(j). Must be positive.
+%           match - parameter to use to match the bootstrap replicates to
+%                   the maximum likelihood estimate: 'A', 'C', 'AQ', 'COV', 
+%                   'COR'   
 %                   
 %                   
 % Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
@@ -89,7 +92,7 @@ function [outpars,LL] = ...
 
 
 % Check number of arguments
-narginchk(3,9);
+narginchk(3,10);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
@@ -118,6 +121,10 @@ end
 if ~exist('opts','var')
     opts = [];
 end
+if ~exist('match','var') || isempty(match)
+    match = 'COV';
+end
+assert(ismember(match,{'A','AQ','C','COV','COR','no'}))
 
 % Model dimensions
 N = size(pars.C,1);
@@ -136,16 +143,16 @@ LLboot = NaN(B,1);
 warning('off')
 
 % Set up parallel pool if needed
-% if parallel     
-%     pool = gcp('nocreate');
-%     if isempty(pool)
-%         pool = gcp;
-%     end
-%     poolsize = pool.NumWorkers;
-%     control.verbose = false;
-% else
-%     poolsize = 0;
-% end
+if parallel     
+    pool = gcp('nocreate');
+    if isempty(pool)
+        pool = gcp;
+    end
+    poolsize = pool.NumWorkers;
+    control.verbose = false;
+else
+    poolsize = 0;
+end
 
 % Initialize progress bar if required
 if verbose && parallel  
@@ -153,69 +160,43 @@ if verbose && parallel
 end
 
 % MAIN LOOP
-if parallel 
-    parfor b = 1:B 
+parfor (b=1:B, poolsize) 
        
-        % Parametric bootstrap
-        y = simulate_obs(pars,T);
+    % Parametric bootstrap
+    y = simulate_obs(pars,T);
 
-        % EM algorithm
-        try
-            pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);
-            [~,~,~,~,~,~,parsboot,LL] = ... 
-                    switch_obs(y,M,p,r,pars0,control,equal,fixed,scale);   
-        catch
-            continue
-        end
-        Aboot(:,:,:,:,b) = parsboot.A;
-        Cboot(:,:,:,b) = parsboot.C;
-        Qboot(:,:,:,b) = parsboot.Q;
-        Rboot(:,:,b) = parsboot.R;
-        muboot(:,:,b) = parsboot.mu;
-        Sigmaboot(:,:,:,b) = parsboot.Sigma;
-        Piboot(:,b) = parsboot.Pi;
-        Zboot(:,:,b) = parsboot.Z;
-        LLboot(b) = max(LL);
-
-        % Display progress if required
-        if verbose && parallel
-            parfor_progress;  
-        end     
+    % EM algorithm
+    try
+        pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);
+        [~,~,~,~,~,~,parsboot,LL] = ... 
+                switch_obs(y,M,p,r,pars0,control,equal,fixed,scale);   
+    catch
+        continue
     end
-else 
-    for b = 1:B 
-       
-        % Parametric bootstrap
-        y = simulate_obs(pars,T);
-
-        % EM algorithm
-        try
-            pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);
-            [~,~,~,~,~,~,parsboot,LL] = ... 
-                    switch_obs(y,M,p,r,pars0,control,equal,fixed,scale);   
-        catch
-            continue
-        end
-        Aboot(:,:,:,:,b) = parsboot.A;
-        Cboot(:,:,:,b) = parsboot.C;
-        Qboot(:,:,:,b) = parsboot.Q;
-        Rboot(:,:,b) = parsboot.R;
-        muboot(:,:,b) = parsboot.mu;
-        Sigmaboot(:,:,:,b) = parsboot.Sigma;
-        Piboot(:,b) = parsboot.Pi;
-        Zboot(:,:,b) = parsboot.Z;
-        LLboot(b) = max(LL);
-
-        % Display progress if required
-        if verbose && parallel
-            parfor_progress;  
-        end     
+    Aboot(:,:,:,:,b) = parsboot.A;
+    Cboot(:,:,:,b) = parsboot.C;
+    Qboot(:,:,:,b) = parsboot.Q;
+    Rboot(:,:,b) = parsboot.R;
+    muboot(:,:,b) = parsboot.mu;
+    Sigmaboot(:,:,:,b) = parsboot.Sigma;
+    Piboot(:,b) = parsboot.Pi;
+    Zboot(:,:,b) = parsboot.Z;
+    LLboot(b) = max(LL);
+    
+    % Display progress if required
+    if verbose && parallel
+        parfor_progress;  
     end
 end
 
 outpars = struct('A',Aboot, 'C',Cboot, 'Q',Qboot, 'R',Rboot, 'mu',muboot, ...
     'Sigma',Sigmaboot, 'Pi',Piboot, 'Z',Zboot);
 LL = LLboot;
+
+% Match bootstrap replicates to MLE
+if ~strcmp(match,'no')
+    outpars = bootstrap_match(outpars,pars,match);
+end
 
 if verbose && parallel
     parfor_progress(0);

@@ -1,5 +1,5 @@
-function [outpars,LL] = bootstrap_dyn(pars,T,B,opts,control,equal,...
-    fixed,scale,parallel)
+function [outpars,LL] = ... 
+    bootstrap_dyn(pars,T,B,opts,control,equal,fixed,scale,parallel,match)
 
 %-------------------------------------------------------------------------%
 %
@@ -17,7 +17,7 @@ function [outpars,LL] = bootstrap_dyn(pars,T,B,opts,control,equal,...
 %           implemented via the EM algorithm. 
 %  
 % Usage:    [outpars,LL] = bootstrap_dyn(pars,T,B,control,equal,...
-%                   fixed,scale,parallel)
+%                   fixed,scale,parallel,match)
 %
 % Inputs:   pars - structure of estimated model parameters with fields 'A',
 %               'C','Q','R','mu','Sigma','Pi', and 'Z'. Typically, this  
@@ -42,7 +42,7 @@ function [outpars,LL] = bootstrap_dyn(pars,T,B,opts,control,equal,...
 %                       inversion of covariance matrices (eigenvalues less
 %                       than (reltol * largest eigenvalue) are set to this
 %                       value)
-%            equal - optional structure with fields:
+%           equal - optional structure with fields:
 %                   'A': if true, estimates of transition matrices A(l,j) 
 %                       are equal across regimes j=1,...,M. Default = false
 %                   'C': if true, observation matrices C(j) are equal across 
@@ -53,19 +53,21 @@ function [outpars,LL] = bootstrap_dyn(pars,T,B,opts,control,equal,...
 %                       mu(j) are equal across regimes. Default = true
 %                   'Sigma': if true, estimates of initial variance matrices 
 %                       Sigma(j) are equal across regimes. Default = true
-%            fixed - optional struct variable with fields 'A','C','Q','R',
+%           fixed - optional struct variable with fields 'A','C','Q','R',
 %                   'mu','Sigma'. If not empty, each field must be an array
 %                   of the same dimension as the parameter. Numeric values 
 %                   in the array are interpreted as fixed coefficients 
 %                   whereas NaN's represent free coefficients. For example,
 %                   a diagonal structure for 'R' would be specified as
 %                   fixed.R = diag(NaN(N,1)). 
-%            scale - optional structure with fields:
+%           scale - optional structure with fields:
 %                   'A': upper bound on norm of eigenvalues of A matrices. 
 %                       Must be in (0,1) to guarantee stationarity of state 
 %                       process.
 %                   'C': value of the (Euclidean) column norms of the 
 %                       matrices C(j). Must be positive.
+%           match - parameter to use to match the bootstrap replicates to
+%                   the maximum likelihood estimate: 'A', 'AQ', 'COV', 'COR'   
 %                   
 %                   
 % Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
@@ -86,10 +88,10 @@ function [outpars,LL] = bootstrap_dyn(pars,T,B,opts,control,equal,...
 
 
 % Check number of arguments
-narginchk(3,9);
+narginchk(3,10);
 
 % Initialize missing arguments if needed
-if ~exist('B','var')
+if ~exist('B','var') || isempty(B)
     B = 500;
 end
 if ~exist('control','var') ||  ~isstruct(control)
@@ -109,13 +111,16 @@ end
 if ~exist('scale','var')
     scale = [];
 end
-if ~exist('parallel','var')
-    parallel = false;
+if ~exist('parallel','var') || ~islogical(parallel)
+    parallel = true;
 end
 if ~exist('opts','var')
     opts = [];
 end
-
+if ~exist('match','var') || isempty(match)
+    match = 'COV';
+end
+assert(ismember(match,{'A','AQ','COV','COR','no'}))
 
 % Model dimensions
 M = numel(pars.Pi);
@@ -135,85 +140,60 @@ LLboot = NaN(B,1);
 warning('off');
 
 % Set up parallel pool if needed
-% if parallel     
-%     pool = gcp('nocreate');
-%     if isempty(pool)
-%         pool = gcp;
-%     end
-%     poolsize = pool.NumWorkers;
-%     control.verbose = false;
-% else
-%     poolsize = 0;
-% end
+if parallel     
+    pool = gcp('nocreate');
+    if isempty(pool)
+        pool = gcp;
+    end
+    poolsize = pool.NumWorkers;
+    control.verbose = false;
+else
+    poolsize = 0;
+end
  
 % Initialize progress bar if required
 if verbose  
     parfor_progress(B);
 end
 
-if parallel 
-    parfor b = 1:B 
 
-        % Generate data
-        y = simulate_dyn(pars,T);
+parfor (b=1:B, poolsize) 
 
-        % EM algorithm  
-        try
-            pars0 = init_dyn(y,M,p,r,opts,control,equal,fixed,scale);
-            [~,~,~,~,~,~,parsboot,LL] = ... 
-               switch_dyn(y,M,p,r,pars0,control,equal,fixed,scale); 
-        catch
-            continue
-        end
-        Aboot(:,:,:,:,b) = parsboot.A;
-        Cboot(:,:,b) = parsboot.C;
-        Qboot(:,:,:,b) = parsboot.Q;
-        Rboot(:,:,b) = parsboot.R;
-        muboot(:,:,b) = parsboot.mu;
-        Sigmaboot(:,:,:,b) = parsboot.Sigma;
-        Piboot(:,b) = parsboot.Pi;
-        Zboot(:,:,b) = parsboot.Z;
-        LLboot(b) = max(LL);
+    % Generate data
+    y = simulate_dyn(pars,T);
 
-        % Display progress if required
-        if verbose && parallel
-            parfor_progress;  
-        end
-    end
-else
-    for b = 1:B 
-
-        % Generate data
-        y = simulate_dyn(pars,T);
-
-        % EM algorithm  
-        try
-            pars0 = init_dyn(y,M,p,r,opts,control,equal,fixed,scale);
-            [~,~,~,~,~,~,parsboot,LL] = ... 
-               switch_dyn(y,M,p,r,pars0,control,equal,fixed,scale); 
-        catch
-            continue
-        end
-        Aboot(:,:,:,:,b) = parsboot.A;
-        Cboot(:,:,b) = parsboot.C;
-        Qboot(:,:,:,b) = parsboot.Q;
-        Rboot(:,:,b) = parsboot.R;
-        muboot(:,:,b) = parsboot.mu;
-        Sigmaboot(:,:,:,b) = parsboot.Sigma;
-        Piboot(:,b) = parsboot.Pi;
-        Zboot(:,:,b) = parsboot.Z;
-        LLboot(b) = max(LL);
-
-        % Display progress if required
-        if verbose && parallel
-            parfor_progress;  
-        end
+    % EM algorithm  
+%     try
+        pars0 = init_dyn(y,M,p,r,opts,control,equal,fixed,scale);
+        [~,~,~,~,~,~,parsboot,LL] = ... 
+           switch_dyn(y,M,p,r,pars0,control,equal,fixed,scale); 
+%     catch
+%         continue
+%     end
+    Aboot(:,:,:,:,b) = parsboot.A;
+    Cboot(:,:,b) = parsboot.C;
+    Qboot(:,:,:,b) = parsboot.Q;
+    Rboot(:,:,b) = parsboot.R;
+    muboot(:,:,b) = parsboot.mu;
+    Sigmaboot(:,:,:,b) = parsboot.Sigma;
+    Piboot(:,b) = parsboot.Pi;
+    Zboot(:,:,b) = parsboot.Z;
+    LLboot(b) = max(LL);
+    
+    % Display progress if required
+    if verbose && parallel
+        parfor_progress;  
     end
 end
 
 outpars = struct('A',Aboot, 'C',Cboot, 'Q',Qboot, 'R',Rboot, 'mu',muboot, ...
     'Sigma',Sigmaboot, 'Pi',Piboot, 'Z',Zboot);
 LL = LLboot;
+
+% Match bootstrap replicates to MLE
+if ~strcmp(match,'no')
+    outpars = bootstrap_match(outpars,pars,match);
+end
 
 if verbose && parallel
     parfor_progress(0);

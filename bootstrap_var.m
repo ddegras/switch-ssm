@@ -1,5 +1,5 @@
 function [outpars,LL] = ... 
-    bootstrap_var(pars,T,B,opts,control,equal,fixed,scale,parallel)
+    bootstrap_var(pars,T,B,opts,control,equal,fixed,scale,parallel,match)
 
 %-------------------------------------------------------------------------%
 %
@@ -14,8 +14,8 @@ function [outpars,LL] = ...
 %           v(t,S(t)) is a noise term. The model parameters are estimated
 %           by maximum likelihood (EM algorithm). 
 %  
-% Usage:    [outpars,LL] = ... 
-%               bootstrap_var(pars,T,B,opts,control,equal,fixed,scale,parallel)
+% Usage:    [outpars,LL] = bootstrap_var(pars,T,B,opts,control,equal,...
+%               fixed,scale,parallel,match)
 %
 %  Inputs:  pars - structure of estimated model parameters with fields 'A',
 %               'Q','mu','Sigma','Pi', and 'Z'. Typically, this  
@@ -58,6 +58,9 @@ function [outpars,LL] = ...
 %                   'A': upper bound on norm of eigenvalues of A matrices. 
 %                       Must be in (0,1) to guarantee stationarity of state 
 %                       process.
+%           match - parameter to use to match the bootstrap replicates to
+%                   the maximum likelihood estimate across regimes: 'A', 
+%                   'AQ', 'COV', 'COR', or 'no' for no matching (not recommended)   
 %                   
 %                   
 % Outputs:  outpars - struct with fields 
@@ -77,7 +80,7 @@ function [outpars,LL] = ...
 
 
 % Check number of arguments
-narginchk(3,9);
+narginchk(3,10);
 
 % Initialize missing arguments if needed
 if ~exist('B','var')
@@ -106,6 +109,11 @@ end
 if ~exist('parallel','var')
     parallel = false;
 end
+if ~exist('match','var') || isempty(match)
+    match = 'COV';
+end
+assert(ismember(match,{'A','AQ','COV','COR','no'}))
+
 
 % Model dimensions
 [r,~,p,M] = size(pars.A);
@@ -168,6 +176,11 @@ end
 outpars = struct('A',Aboot, 'Q',Qboot, 'mu',muboot, 'Sigma',Sigmaboot, ...
      'Pi',Piboot, 'Z',Zboot);
 LL = LLboot;
+
+% Match bootstrap replicates to MLE
+if ~strcmp(match,'no')
+    outpars = bootstrap_match(outpars,pars,match);
+end
 
 if verbose && parallel
     parfor_progress(0);
