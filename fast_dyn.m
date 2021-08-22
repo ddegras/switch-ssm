@@ -7,12 +7,12 @@ function [xf,xs,outpars,LL] = ...
 %           WITH SWITCHING DYNAMICS ASSUMING REGIMES KNOWN 
 %
 % PURPOSE
-% This function estimates model parameters and infers hidden state vectors 
+% FAST_DYN estimates model parameters and infers hidden state vectors 
 % by the EM algorithm in state-space models with switching dynamics under
-% the assumption t the regime (i.e. switching) variables are known.
+% the assumption that the regime (i.e. switching) variables are known.
 % The function can be used to fit the model under a trajectory of regimes 
-% t is relevant or highly likely. In the case of only one regime (no
-% switching), it can also be used to efficiently fit the standard linear
+% that is highly likely. In the case of only one regime (no
+% switching), it can also be used to fit the standard linear
 % state-space model.
 %
 % USAGE
@@ -35,7 +35,7 @@ function [xf,xs,outpars,LL] = ...
 %       'Sigma': Initial estimate of covariance Sigma(j)=Cov(x(t,j)) for t=1:p (dimension rxrxM)           
 % control:  optional structure with fields: 
 %       'eps': tolerance for EM termination; defaults to 1e-8
-%       'ItrNo': number of EM iterations; dfaults to 100 
+%       'ItrNo': number of EM iterations; defaults to 100 
 %       'beta0': initial inverse temperature parameter for deterministic annealing; default 1 
 %       'betarate': decay rate for temperature; default 1 
 %       'safe': if true, regularizes variance matrices to be well-conditioned 
