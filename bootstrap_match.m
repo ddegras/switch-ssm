@@ -87,6 +87,7 @@ switch target
         [~,~,trgt_val] = get_covariance(pars,0,0);
     case 'COR'
         [~,~,COV,VAR] = get_covariance(pars,0,0);
+        trgt_val = zeros(size(COV));
         for j = 1:M
             try 
                 trgt_val(:,:,j) = corrcov(COV(:,:,j) + COV(:,:,j)');
@@ -100,7 +101,6 @@ end
 trgt_val = reshape(trgt_val,[],M);
 
 % Determine type of model
-model = [];
 if ~isfield(pars,'C') || isempty(pars.C)
     model = 'var';
 elseif ismatrix(pars.C)
@@ -131,23 +131,23 @@ for b = 1:B
         case 'COV'
             parb.A = parsboot.A(:,:,:,:,b);
             parb.Q = parsboot.Q(:,:,:,b);
-            parb.R = parsboot.R(:,:,b);
             if strcmp(model,'dyn')
                 parb.C = parsboot.C(:,:,b);
-            end            
-            if strcmp(model,'obs')
+                parb.R = parsboot.R(:,:,b);           
+            elseif strcmp(model,'obs')
                 pars.C = parsboot.C(:,:,:,b);
+                parb.R = parsboot.R(:,:,b);           
             end
             [~,~,boot_val] = get_covariance(parb,0,0);
         case 'COR'
             parb.A = parsboot.A(:,:,:,:,b);
             parb.Q = parsboot.Q(:,:,:,b);
-            parb.R = parsboot.R(:,:,b);
             if strcmp(model,'dyn')
                 parb.C = parsboot.C(:,:,b);
-            end            
-            if strcmp(model,'obs')
+                parb.R = parsboot.R(:,:,b);                        
+            elseif strcmp(model,'obs')
                 pars.C = parsboot.C(:,:,:,b);
+                parb.R = parsboot.R(:,:,b);
             end
             [~,~,COV] = get_covariance(parb,0,0);
             for j = 1:M
