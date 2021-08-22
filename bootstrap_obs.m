@@ -6,15 +6,14 @@ function [outpars,LL] = ...
 % Title:    Parametric bootstrap in regime-switching state-space models
 %           (switching observations)
 %
-% Purpose:  This function performs parametric bootstrap of the switching
-%           observations model 
+% Purpose:  BOOTSTRAP_OBS performs parametric bootstrap of the maximum 
+%           likelihood estimator (MLE) in the switching observations
+%           model 
 %           y(t) = C(S(t)) x(t,S(t)) + w(t)
 %           x(t,j) = A(1,j) x(t-1,j) + ... + A(p,j) x(t-p,j) + v(t,j)
 %           where y indicates the observed measurement vector, x the 
-%           unbserved state vector, and S the current (unobserved) regime.
-%           The terms v and w are noise vectors. All model parameters are 
-%           (re)estimated by maximum likelihood. ML estimation is 
-%           implemented via the EM algorithm. 
+%           unbserved state vector, and S the (unobserved) regime.
+%           The terms v and w are noise vectors. 
 %  
 % Usage:    [outpars,LL]...
 %               = bootstrap_obs(pars,T,B,opts,control,equal,...
@@ -72,16 +71,16 @@ function [outpars,LL] = ...
 %                   'COR'   
 %                   
 %                   
-% Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
-%           Cboot - Bootstrap distribution of C (size NxrxMxB)
-%           Qboot - Bootstrap distribution of Q (size rxrxMxB)
-%           Rboot - Bootstrap distribution of R (size NxNxB)
-%           muboot - Bootstrap distribution of mu (size rxMxB) 
-%           Sigmaboot - Bootstrap distribution of Sigma (size rxrxMxB)
-%           Piboot - Bootstrap distribution of Pi (size MxB)
-%           Zboot - Bootstrap distribution of Z (size MxMxB)
-%           LLboot - Bootstrap distribution of attained maximum log-
-%           likelihood (size 1xB)
+% Outputs:  outpars - struct with fields 
+%               'A': Bootstrap distribution of A (size rxrxpxMxB)
+%               'C': Bootstrap distribution of C (size NxrxMxB)
+%           	'Q': Bootstrap distribution of Q (size rxrxMxB)
+%               'R': Bootstrap distribution of R (size NxNxB)
+%           	'mu': Bootstrap distribution of mu (size rxMxB) 
+%           	'Sigma': Bootstrap distribution of Sigma (size rxrxMxB)
+%           	'Pi': Bootstrap distribution of Pi (size MxB)
+%           	'Z': Bootstrap distribution of Z (size MxMxB)
+%           LL - Bootstrap distribution of attained log-likelihood (1xB)
 %                    
 % Author:   David Degras, david.degras@umb.edu
 %           University of Massachusetts Boston
@@ -116,7 +115,7 @@ if ~exist('scale','var')
     scale = [];
 end
 if ~exist('parallel','var')
-    parallel = false;
+    parallel = true;
 end
 if ~exist('opts','var')
     opts = [];

@@ -6,13 +6,13 @@ function [outpars,LL] = ...
 % Title:    Parametric bootstrap in regime-switching state-space models
 %           (switching vector autoregressive model)
 %
-% Purpose:  This function performs parametric bootstrap of the switching
-%           vector autoregresssive (VAR) model 
+% Purpose:  BOOTSTRAP_VAR performs parametric bootstrap of the maximum 
+%           likelihood estimator (MLE) in the switching vector
+%            autoregresssive (VAR) model 
 %           x(t) = A(1,S(t)) x(t-1) + ... + A(p,S(t)) x(t-p) + v(t,S(t))
 %           where x(t) is the observed measurement vector, S(t) is a latent 
 %           variable indicating the current (unobserved) regime, and
-%           v(t,S(t)) is a noise term. The model parameters are estimated
-%           by maximum likelihood (EM algorithm). 
+%           v(t,S(t)) is a noise term.  
 %  
 % Usage:    [outpars,LL] = bootstrap_var(pars,T,B,opts,control,equal,...
 %               fixed,scale,parallel,match)
@@ -25,30 +25,30 @@ function [outpars,LL] = ...
 %           B - Number of bootstrap replicates (default = 500)
 %           control - optional struct variable with fields: 
 %                   eps tolerance for EM termination; default = 1e-8
-%                   'ItrNo': number of EM iterations; default = 100 
-%                   'beta0': initial inverse temperature parameter for 
+%               'ItrNo': number of EM iterations; default = 100 
+%               'beta0': initial inverse temperature parameter for 
 %                       deterministic annealing; default = 1 
-%                   'betarate': decay rate for temperature; default = 1 
-%                   'safe': if true, regularizes variance matrices in 
-%                       switching Kalman filtering to be well-conditioned 
-%                       before inversion. If false, no regularization (faster 
-%                       but less safe)
-%                   'abstol': absolute tolerance for eigenvalues before
-%                       inversion of covariance matrices (eigenvalues less 
-%                       than abstol are set to this value) 
-%                   'reltol': relative tolerance for eigenvalues before 
-%                       inversion of covariance matrices (eigenvalues less
-%                       than (reltol * largest eigenvalue) are set to this
-%                       value)
+%               'betarate': decay rate for temperature; default = 1 
+%               'safe': if true, regularizes variance matrices in 
+%                   switching Kalman filtering to be well-conditioned 
+%                   before inversion. If false, no regularization (faster 
+%                   but less safe)
+%               'abstol': absolute tolerance for eigenvalues before
+%                   inversion of covariance matrices (eigenvalues less 
+%                   than abstol are set to this value) 
+%               'reltol': relative tolerance for eigenvalues before 
+%                   inversion of covariance matrices (eigenvalues less
+%                   than (reltol * largest eigenvalue) are set to this
+%                   value)
 %            equal - optional structure with fields:
-%               A - if true, estimates of transition matrices A(l,j) 
-%                       are equal across regimes j=1,...,M. Default = false
-%               Q - if true, estimates of innovation matrices Q(j) are
-%                       equal across regimes. Default = false
-%               mu - if true, estimates of initial mean state vectors 
-%                       mu(j) are equal across regimes. Default = true
-%               Sigma - if true, estimates of initial variance matrices 
-%                       Sigma(j) are equal across regimes. Default = true
+%               'A': if true, estimates of transition matrices A(l,j) 
+%                   are equal across regimes j=1,...,M. Default = false
+%               'Q': if true, estimates of innovation matrices Q(j) are
+%                   equal across regimes. Default = false
+%               'mu': if true, estimates of initial mean state vectors 
+%                   mu(j) are equal across regimes. Default = true
+%               'Sigma': if true, estimates of initial variance matrices 
+%                   Sigma(j) are equal across regimes. Default = true
 %            fixed - optional struct variable with fields 'A','Q','mu',
 %                   'Sigma', 'Pi', 'Z'. If not empty, each field must be an 
 %                   array of the same dimension as the parameter. Numeric 
@@ -64,14 +64,14 @@ function [outpars,LL] = ...
 %                   
 %                   
 % Outputs:  outpars - struct with fields 
-%		A - Bootstrap distribution of A (size rxrxpxMxB)
-%           	Q - Bootstrap distribution of Q (size rxrxMxB)
-%           	mu - Bootstrap distribution of mu (size rxMxB) 
-%           	Sigma - Bootstrap distribution of Sigma (size rxrxMxB)
-%           	Pi - Bootstrap distribution of Pi (size MxB)
-%           	Z - Bootstrap distribution of Z (size MxMxB)
-%           LL - Bootstrap distribution of attained maximum log-
-%           likelihood (size 1xB)
+%               'A': Bootstrap distribution of A (size rxrxpxMxB)
+%           	'Q': Bootstrap distribution of Q (size rxrxMxB)
+%           	'mu': Bootstrap distribution of mu (size rxMxB) 
+%           	'Sigma': Bootstrap distribution of Sigma (size rxrxMxB)
+%           	'Pi': Bootstrap distribution of Pi (size MxB)
+%           	'Z': Bootstrap distribution of Z (size MxMxB)
+%           LL - Bootstrap distribution of attained log-likelihood (1xB)
+%            
 %                    
 % Author:   David Degras, david.degras@umb.edu
 %           University of Massachusetts Boston
@@ -107,7 +107,7 @@ if ~exist('opts','var')
     opts = [];
 end
 if ~exist('parallel','var')
-    parallel = false;
+    parallel = true;
 end
 if ~exist('match','var') || isempty(match)
     match = 'COV';
@@ -153,11 +153,11 @@ parfor (b=1:B, poolsize)
         
     % EM algorithm 
     try 
-	pars0 = init_var(y,M,p,opts,control,equal,fixed,scale);
-    	[~,~,~,~,parsboot,LL] = ... 
+        pars0 = init_var(y,M,p,opts,control,equal,fixed,scale);
+        [~,~,~,~,parsboot,LL] = ... 
             switch_var(y,M,p,pars0,control,equal,fixed,scale); 
     catch
-	continue
+        continue
     end  
     Aboot(:,:,:,:,b) = parsboot.A;
     Qboot(:,:,:,b) = parsboot.Q;

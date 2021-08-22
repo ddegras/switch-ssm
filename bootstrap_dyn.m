@@ -70,16 +70,16 @@ function [outpars,LL] = ...
 %                   the maximum likelihood estimate: 'A', 'AQ', 'COV', 'COR'   
 %                   
 %                   
-% Outputs:  Aboot - Bootstrap distribution of A (size rxrxpxMxB)
-%           Cboot - Bootstrap distribution of C (size NxrxB)
-%           Qboot - Bootstrap distribution of Q (size rxrxMxB)
-%           Rboot - Bootstrap distribution of R (size NxNxB)
-%           muboot - Bootstrap distribution of mu (size rxMxB) 
-%           Sigmaboot - Bootstrap distribution of Sigma (size rxrxMxB)
-%           Piboot - Bootstrap distribution of Pi (size MxB)
-%           Zboot - Bootstrap distribution of Z (size MxMxB)
-%           LLboot - Bootstrap distribution of attained maximum log-
-%           likelihood (size 1xB)
+% Outputs:  outpars - struct with fields 
+%               'A': Bootstrap distribution of A (size rxrxpxMxB)
+%               'C': Bootstrap distribution of C (size NxrxB)
+%           	'Q': Bootstrap distribution of Q (size rxrxMxB)
+%               'R': Bootstrap distribution of R (size NxNxB)
+%           	'mu': Bootstrap distribution of mu (size rxMxB) 
+%           	'Sigma': Bootstrap distribution of Sigma (size rxrxMxB)
+%           	'Pi': Bootstrap distribution of Pi (size MxB)
+%           	'Z': Bootstrap distribution of Z (size MxMxB)
+%           LL - Bootstrap distribution of attained log-likelihood (1xB)
 %                    
 % Author:   David Degras, david.degras@umb.edu
 %           University of Massachusetts Boston
