@@ -183,7 +183,7 @@ end % end t loop
   
 
 % Collapse M distributions (X(t)|S(t),y(1:t)) to 1 (X(t)|y(1:t))
-xf = sum(xf1 .* Mf); % E(X(t)|y(1:t))
+xf = sum(xf1 .* Mf,1); % E(X(t)|y(1:t))
 
 
 
