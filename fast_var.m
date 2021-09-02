@@ -70,6 +70,9 @@ narginchk(4,8)
 % Check that time series and regime history have same length
 assert(size(y,2) == numel(S))
 
+% Check that all regime values S(t) are in 1:M
+assert(all(ismember(S,1:M)));
+
 % Data dimensions
 [N,T] = size(y);
 % 'small' state vector: x(t), size r
@@ -98,9 +101,12 @@ end
 % Pilot estimate
 Pi = zeros(M,1);
 Pi(S(1)) = 1;
+Z = crosstab(S(1:T-1),S(2:T));
+Z = Z ./ sum(Z,2);
+Z(isnan(Z)) = 1/M;
 pars = struct('A',zeros(N,N,p,M), 'C',eye(N), 'Q',zeros(N,N,M), ...
     'R',1e-10*eye(N), 'mu',zeros(N,M), 'Sigma',repmat(eye(N),1,1,M), ...
-    'Pi',Pi, 'Z',eye(M));
+    'Pi',Pi, 'Z',Z);
 if ~isempty(fixed) && isstruct(fixed)
     parname = {'A','Q','mu','Sigma'};
     for i = 1:4
@@ -181,10 +187,9 @@ end
 
 % Postprocess MLE 
 outpars.A = reshape(outpars.A,N,N,p,M);
-outpars = rmfield(outpars,{'C','R','Pi','Z'});
-
-
-
+outpars.Pi = Pi;
+outpars.Z = Z;
+outpars = rmfield(outpars,{'C','R'});
 
 
 

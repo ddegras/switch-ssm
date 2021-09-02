@@ -66,7 +66,9 @@ function [xf,xs,outpars,LL] = ...
 %       Q:  Estimated state noise cov
 %       R:  Estimated observation noise cov
 %       mu:  Estimated initial mean of state vector
-%       Sigma:  Estimated initial variance of state vector 
+%       Sigma:  Estimated initial variance of state vector
+%       Pi: Estimated initial regime probabilities
+%       Z: Estimated regime transition probabilities
 % LL :  Log-likelihood
 %                    
 % AUTHOR       
@@ -105,6 +107,9 @@ y = y - mean(y,2);
 % Check that time series has same length as regime sequence
 assert(size(y,2) == numel(S));
 
+% Check that all regime values S(t) are in 1:M
+assert(all(ismember(S,1:M)));
+
 %@@@@@ Initialize optional arguments if not specified @@@@@%
 if ~exist('fixed','var')
     fixed = struct();
@@ -137,7 +142,10 @@ pars = pars0;
 Pi = zeros(M,1);
 Pi(S(1)) = 1;
 pars.Pi = Pi;
-pars.Z = eye(M); 
+Z = crosstab(S(1:T-1),S(2:T));
+Z = Z ./ sum(Z,2);
+Z(isnan(Z)) = 1/M;
+pars.Z = Z; 
 
 if any(structfun(@isempty,pars)) 
     pars = reestimate_dyn(y,M,p,r,S,control,equal,fixed,scale);
@@ -240,6 +248,8 @@ end % END MAIN LOOP
 
 % Wrap-up
 outpars.A = reshape(outpars.A,[r,r,p,M]);
+outpars.Pi = Pi;
+outpars.Z = Z;
 LL = LL(1:i);
 xf = xfbest;
 xs = xsbest;

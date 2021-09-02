@@ -101,6 +101,12 @@ narginchk(5,10);
 % X(t) = x(t,1),...,x(t,M): state vector for all processes at times t,...,t-p+1 (size M*p*r0)
 % We assume t the initial vectors x(1),...,x(1-p+1) are iid ~ N(mu,Sigma)
 
+% Check that time series has same length as regime sequence
+assert(size(y,2) == numel(S));
+
+% Check that all regime values S(t) are in 1:M
+assert(all(ismember(S,1:M)));
+
 % Data centering
 y = y - mean(y,2);
 
@@ -138,10 +144,14 @@ if any(structfun(@isempty,pars))
     pars = init_obs(y,M,p,r,[],control,equal,fixed,scale);
 end
 
-pars.Pi = zeros(M,1);
-pars.Pi(S(1)) = 1;
+Pi = zeros(M,1);
+Pi(S(1)) = 1;
+pars.Pi = Pi;
 fixed.Pi = [];
-pars.Z = eye(M);
+Z = crosstab(S(1:T-1),S(2:T));
+Z = Z ./ sum(Z,2);
+Z(isnan(Z)) = 1/M;
+pars.Z = Z; 
 fixed.Z = [];
 
 
@@ -253,6 +263,8 @@ end % END MAIN LOOP
 % Return best estimates (i.e. with highest log-likelihood) 
 % after reshaping them in compact form
 outpars.A = reshape(outpars.A,r,r,p,M);
+outpars.Pi = Pi;
+outpars.Z = Z;
 xf = xfbest;
 xs = xsbest;
 LL = LL(1:i);
