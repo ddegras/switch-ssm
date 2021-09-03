@@ -232,10 +232,14 @@ end
 if skip.Q
     Qhat = fixed.Q;
 elseif (equal.A && equal.Q) || M == 1 
-    Qhat = var(Y-Ahat*X,1,2);
-    lb = min(control.abstol,max(Qhat)*control.reltol);
-    Qhat(Qhat < lb) = lb;
-    Qhat = diag(Qhat);
+%     Qhat = var(Y-Ahat*X,1,2);
+%     lb = min(control.abstol,max(Qhat)*control.reltol);
+%     Qhat(Qhat < lb) = lb;
+%     Qhat = diag(Qhat);
+    % full Qhat (non diagonal) @@@@@@
+    e = Y-Ahat*X;
+    Qhat = (e * e.') / T;
+    Qhat = regfun(Qhat,control.abstol,control.reltol);
 end
 
 % Adjust the type of segmentation to be performed depending on equality

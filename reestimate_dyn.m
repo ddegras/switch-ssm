@@ -343,7 +343,8 @@ else
             YYj = YY(:,:,j);
             A_j = Ahat(:,:,j);
             Q_j =  YYj - YXj * A_j' - A_j * YXj' + A_j * XXj * A_j'; 
-            Qhat(:,:,j) = diag(diag(Q_j)/groupsize(j));
+%             Qhat(:,:,j) = diag(diag(Q_j)/groupsize(j)); % @@@@@@@@
+            Qhat(:,:,j) = (Q_j + Q_j')/ (2*groupsize(j));
         elseif any(S == j)
             Qhat(:,:,j) = diag(var(xhat(:,S == j),1,2));
         end
