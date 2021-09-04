@@ -18,6 +18,8 @@ The possible suffixes are:
 - `obs`: switching observations model 
 - `var`: swiching vector autoregressive model
 
+NEW: the function `bootstrap_ci` enables building confidence intervals for model parameters in all three switching SSMs (dyn, obs, var).  
+
 ## Authors
 **Author:** David Degras
 **Contributors:** Chee Ming Ting @CheeMingTing, Siti Balqis Samdin
