@@ -1,6 +1,6 @@
 function [Mf,Ms,xf,xs,x0,P0,L,sum_CP,sum_MP,sum_Ms2,sum_Mxy,sum_P,sum_Pb] = ...
     skfs_obs(y,M,p,pars,beta,safe,abstol,reltol)
-
+% test
 A = pars.A; C = pars.C; Q = pars.Q; R = pars.R; mu = pars.mu; 
 Sigma = pars.Sigma; Pi = pars.Pi; Z = pars.Z;
 
