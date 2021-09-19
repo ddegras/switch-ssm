@@ -1,13 +1,13 @@
-function [ACF,COH,COV,VAR] = get_covariance(pars,lagmax,nfreq)
+function [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
 
 %-------------------------------------------------------------------------%
 %
-% Purpose:  calculate stationary autocorrelation function, coherence function,
-%           and instant covariance matrix in switching state-space model 
-%           y(t) = C(S(t)) x(t) + w(t)
-%           x(t) = A(1,S(t)) x(t-1) + ... + A(p,S(t)) x(t-p) + v(t)
+% Purpose:  GET_COVARIANCE calculates the stationary autocorrelation function, 
+%           coherence function, and covariance matrix, correlation matrix, 
+%           and partial correlation matrix for each regime of a switching 
+%           state-space model 
 %
-% Usage:    [ACF,COH,COV,VAR] = get_covariance(pars,lagmax,nfreq)
+% Usage:    [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
 %
 % Inputs:   pars - struct with fields  
 %               A - transition matrices ([r,r,p,M])
@@ -68,7 +68,10 @@ end
 % Initialize various quantities
 ACF = NaN(N,lagmax+1,M); % auto-correlation diag(cor(x(t),x(t-l)|S(t)=j)
 COH = NaN(N,N,nfreq,M); % coherence
-COV = NaN(N,N,M); % instantaneous covariance Cov(x(t)|S(t)=j)
+COV = NaN(N,N,M); % covariance Cov(x(t)|S(t)=j)
+COR = NaN(N,N,M); % correlation Cor(x(t)|S(t)=j)
+PCOR = NaN(N,N,M); % partial correlation
+VAR = zeros(N,M);
 Abig = zeros(p*r); % container for A 
 invAbig = zeros(p*r);
 if p > 1
@@ -80,6 +83,7 @@ idx_acf = (repmat(eye(N),1,1,lagmax+1) == 1);
 idx_coh = (repmat(eye(N),1,1,nfreq) == 1);
 
 % Calculations
+mask = logical(eye(N));
 for j = 1:M
     A_j = A(:,:,:,j);
     Abig(1:r,:) = reshape(A_j,r,p*r); 
@@ -100,7 +104,9 @@ for j = 1:M
             end
             Vbig = sylvester(invAbig,-Abig',invAbig*Qbig); 
         end
-    end        
+    end   
+    
+    % Covariance and variance
     Vbig = 0.5 * (Vbig + Vbig.');
     if isempty(C)
         COV(:,:,j) = Vbig(1:r,1:r);
@@ -108,7 +114,25 @@ for j = 1:M
         COV(:,:,j) = (C(:,:,j) * Vbig(1:r,1:r) * C(:,:,j).') + R;
     end
     COV(:,:,j) = 0.5 * (COV(:,:,j) + COV(:,:,j).');
+    VAR(:,j) = diag(COV(:,:,j));
     
+    % Correlation and partial correlation
+    try 
+        COR(:,:,j) = corrcov(COV(:,:,j));
+        iCORj = myinv(COR(:,:,j));
+        PCORj = - corrcov(iCORj + iCORj');
+    catch
+        SDj = sqrt(VAR(:,j));
+        SDj(SDj == 0) = 1;
+        COR(:,:,j) = diag(1./SDj) * COV(:,:,j) * diag(1./SDj);
+        iCORj = myinv(COR(:,:,j));
+        SDj = sqrt(diag(iCORj));
+        SDj(SDj == 0) = 1;
+        PCORj = - diag(1./SDj) * iCORj * diag(1./SDj);
+    end
+    PCORj(mask) = 1;
+    PCOR(:,:,j) = PCORj;
+        
     if lagmax > 0    
         CCV_tmp = Vbig; % Cov(X(t),X(t-l)|S(t)=j)
         CCV = zeros(r,r,lagmax+1); % Cov(x(t),x(t-l)|S(t)=j)
@@ -170,14 +194,13 @@ for j = 1:M
     
 end
 
-VAR = zeros(N,M);
-for j = 1:M
-    VAR(:,j) = diag(COV(:,:,j));
-end
+
     
 if M == 1
     ACF = squeeze(ACF);
-    COV = squeeze(COV);
     COH = squeeze(COH);
+    COV = squeeze(COV);
+    COR = squeeze(COR);
+    PCOR = squeeze(PCOR);    
 end
 
