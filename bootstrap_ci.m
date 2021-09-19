@@ -69,7 +69,7 @@ end
 
 % Output structure 
 ci = struct('A',[], 'C',[], 'Q',[], 'R',[], 'mu',[], 'Sigma',[], ... 
-    'Pi',[], 'Z',[], 'ACF',[], 'COV',[], 'COR',[]);
+    'Pi',[], 'Z',[], 'ACF',[], 'COV',[], 'COR',[], 'PCOR',[]);
 fname = fieldnames(ci);
 
 % Bootstrap CIs for model parameters
@@ -94,6 +94,8 @@ end
 % MLEs of stationary autocorrelation, covariance, and correlation
 [ACF,~,COV,VAR] = get_covariance(pars,lagmax,0);
 COR = NaN(N,N,M);
+PCOR = NaN(N,N,M);
+mask = logical(eye(N));
 for j = 1:M
     try 
         COR(:,:,j) = corrcov(COV(:,:,j)+COV(:,:,j)');
@@ -102,6 +104,16 @@ for j = 1:M
         SDj(SDj == 0) = 1;
         COR(:,:,j) = diag(1./SDj) * COV * diag(1./SDj);
     end
+    iCORj = myinv(COR(:,:,j));
+    try 
+        PCORj = - corrcov(iCORj + iCORj');
+    catch
+       SDj = sqrt(diag(PCORj));
+        SDj(SDj == 0) = 1;
+        PCORj = diag(1./SDj) * PCORj * diag(1./SDj);
+    end
+    PCORj(mask) = 1;
+    PCOR(:,:,j) = PCORj;
 end
 
 % Bootstrap distribution of stationary autocorrelation, covariance, and 
@@ -109,6 +121,7 @@ end
 ACFboot = NaN(N,lagmax+1,M,B);
 COVboot = NaN(N,N,M,B);
 CORboot = NaN(N,N,M,B);
+PCORboot = NaN(N,N,M,B);
 parsb = struct('A',[], 'C',[], 'Q',[], 'R',[]);
 for b = 1:B
     parsb.A = parsboot.A(:,:,:,:,b);
@@ -120,24 +133,15 @@ for b = 1:B
         parsb.C = parsboot.C(:,:,:,b);      
         parsb.R = parsboot.R(:,:,b);
     end        
-    [ACFb,~,COVb,VARb] = get_covariance(parsb,lagmax,0);
-    CORb = NaN(N,N,M);
-    for j = 1:M
-        try 
-            CORb(:,:,j) = corrcov(COVb(:,:,j)+COVb(:,:,j)');
-        catch
-            SDj = sqrt(VARb(:,j));
-            SDj(SDj == 0) = 1;
-            CORb(:,:,j) = diag(1./SDj) * COV(:,:,b) * diag(1./SDj);
-        end
-    end
+    [ACFb,~,COVb,CORb,PCORb] = get_covariance(parsb,lagmax,0);
     ACFboot(:,:,:,b) = ACFb;
     COVboot(:,:,:,b) = COVb;
     CORboot(:,:,:,b) = CORb;
+    PCORboot(:,:,:,b) = PCORb;
 end
 
 % Bootstrap CIs for stationary autocorrelation, covariance, and correlation
-for i = 9:11
+for i = 9:12
     f = fname{i};
     switch i
         case 9
@@ -146,6 +150,8 @@ for i = 9:11
             mle = COV; boot = COVboot;
         case 11
             mle = COR; boot = CORboot;
+        case 12
+            mle = PCOR; boot = PCORboot;
     end
     mean_boot = mean(boot,4,'omitNaN');
     sd_boot = std(boot,1,4,'omitNaN');
