@@ -22,12 +22,12 @@ function ci = bootstrap_ci(parsboot,pars,level,lagmax)
 %           lagmax - maximum lag for the autocorrelation 
 %
 % Outputs:  ci - structure with fields 'A', 'C', ... (all model parameters)
-%               and 'ACF', 'COV', 'COR' (stationary autocorrelation, 
-%               covariance, and correlation). Each field has 3 subfields 
-%               'percentile', 'basic', and 'normal' indicating the CI
-%               method. Each of these has in turn 2 subfields containing 
-%               the lower and upper confidence bounds for the target 
-%               parameter. 
+%               and 'ACF', 'COV', 'COR', 'PCOR' (stationary autocorrelation, 
+%               covariance, correlation, and partial correlation). Each
+%               field has 3 subfields 'percentile', 'basic', and 'normal' 
+%               indicating the CI method. Each of these has in turn 2 
+%               subfields containing the lower and upper confidence bounds 
+%               for the target parameter. 
 % 
 % Author:   David Degras, david.degras@umb.edu
 %           University of Massachusetts Boston

@@ -19,10 +19,12 @@ function [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
 %           nfreq - number of frequencies at which to calculate coherence
 %               (optional, default = 100)
 %
-% Outputs:  ACF - autocorrelation functions ([N,lagmax])
-%           COH - coherence functions ([N,N,nfreq])
-%           COV - instantaneous covariance matrices ([N,N,M])
-%           VAR - variances ([N,M])
+% Outputs:  ACF - autocorrelation function ([N,lagmax,M])
+%           COH - coherence function ([N,N,nfreq,M])
+%           COV - covariance matrix ([N,N,M])
+%           COR - correlation matrix ([N,N,M])
+%           PCOR - partial correlation matrix ([N,N,M])
+%           VAR - variance ([N,M])
 %
 %-------------------------------------------------------------------------%
 
