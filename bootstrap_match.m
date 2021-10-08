@@ -150,6 +150,7 @@ for b = 1:B
                 parb.R = parsboot.R(:,:,b);
             end
             [~,~,COV] = get_covariance(parb,0,0);
+            boot_val = NaN(N,N,M);
             for j = 1:M
                 try 
                     boot_val(:,:,j) = corrcov(COV(:,:,j) + COV(:,:,j)');
