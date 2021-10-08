@@ -26,11 +26,11 @@ function ci = bootstrap_ci(parsboot,pars,level,lagmax)
 %               covariance, correlation, and partial correlation). Each
 %               field has 3 subfields 'percentile', 'basic', and 'normal' 
 %               indicating the CI method. Each of these has in turn 2 
-%               subfields containing the lower and upper confidence bounds 
-%               for the target parameter. 
-% 
-% Author:   David Degras, david.degras@umb.edu
-%           University of Massachusetts Boston
+%               subfields 'lo' and 'up' containing the lower and upper 
+%               confidence bounds for the target parameter. The output 
+%               structure also contains the input 'level'. 
+%
+% Author:   David Degras, University of Massachusetts Boston
 %
 %-------------------------------------------------------------------------%
 
@@ -164,6 +164,7 @@ for i = 9:12
     ci.(f).normal.lo = 2 * mle - mean_boot - q * sd_boot;
     ci.(f).normal.up = 2 * mle - mean_boot + q * sd_boot;
 end
-    
-    
+
+ci.level = level;
+
             
