@@ -1,4 +1,4 @@
-function [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
+function stationary = get_covariance(pars,lagmax,nfreq)
 
 %-------------------------------------------------------------------------%
 %
@@ -7,9 +7,9 @@ function [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
 %           and partial correlation matrix for each regime of a switching 
 %           state-space model 
 %
-% Usage:    [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
+% Usage:    out = get_covariance(pars,lagmax,nfreq)
 %
-% Inputs:   pars - struct with fields  
+% Inputs:   pars - structure with fields  
 %               A - transition matrices ([r,r,p,M])
 %               C - observation matrices ([N,r], [N,r,M], or [])
 %               Q - state noise covariance matrices ([N,N,M]) 
@@ -19,12 +19,13 @@ function [ACF,COH,COV,COR,PCOR,VAR] = get_covariance(pars,lagmax,nfreq)
 %           nfreq - number of frequencies at which to calculate coherence
 %               (optional, default = 100)
 %
-% Outputs:  ACF - autocorrelation function ([N,lagmax,M])
-%           COH - coherence function ([N,N,nfreq,M])
-%           COV - covariance matrix ([N,N,M])
-%           COR - correlation matrix ([N,N,M])
-%           PCOR - partial correlation matrix ([N,N,M])
-%           VAR - variance ([N,M])
+% Outputs:  stationary - structure with fields
+%               ACF - autocorrelation function ([N,lagmax,M])
+%               COH - coherence function ([N,N,nfreq,M])
+%               COV - covariance matrix ([N,N,M])
+%               COR - correlation matrix ([N,N,M])
+%               PCOR - partial correlation matrix ([N,N,M])
+%               VAR - variance ([N,M])
 %
 %-------------------------------------------------------------------------%
 
@@ -67,9 +68,17 @@ end
 
     
 
-% Initialize various quantities
-ACF = NaN(N,lagmax+1,M); % auto-correlation diag(cor(x(t),x(t-l)|S(t)=j)
-COH = NaN(N,N,nfreq,M); % coherence
+% Initialize stationary measures
+mask = logical(eye(N));
+ACF = NaN(N,lagmax+1,M); % auto-correlation diag(cor(x(t),x(t-l)|S(t)=j) 
+ACF(:,1,:) = 1;
+idx_acf = repmat(mask,1,1,lagmax+1);
+if nfreq == 0
+    COH = [];
+else
+    COH = NaN(N,N,nfreq,M); % coherence
+    idx_coh = repmat(mask,1,1,nfreq);
+end
 COV = NaN(N,N,M); % covariance Cov(x(t)|S(t)=j)
 COR = NaN(N,N,M); % correlation Cor(x(t)|S(t)=j)
 PCOR = NaN(N,N,M); % partial correlation
@@ -81,11 +90,8 @@ if p > 1
     invAbig(1:end-r,r+1:end) = eye((p-1)*r);
 end
 Qbig = zeros(p*r); % container for Q
-idx_acf = (repmat(eye(N),1,1,lagmax+1) == 1);
-idx_coh = (repmat(eye(N),1,1,nfreq) == 1);
 
 % Calculations
-mask = logical(eye(N));
 for j = 1:M
     A_j = A(:,:,:,j);
     Abig(1:r,:) = reshape(A_j,r,p*r); 
@@ -156,7 +162,7 @@ for j = 1:M
             CCV(:,:,1) = COV(:,:,j);
         end
         % Autocorrelation 
-        ACF(:,:,j) = reshape(CCV(idx_acf),N,lagmax+1);
+        ACF(:,:,j) = reshape(CCV(idx_acf),N,lagmax+1); %#ok<*AGROW>
         ACF(:,:,j) = ACF(:,:,j) ./ diag(COV(:,:,j));
     end
     
@@ -192,12 +198,10 @@ for j = 1:M
         nrm = 1./SD(:,f);
         CSD(:,:,f) = nrm .* CSD(:,:,f) .* (nrm.');
     end
-    COH(:,:,:,j) = CSD;
+    COH(:,:,:,j) = CSD; 
     
 end
 
-
-    
 if M == 1
     ACF = squeeze(ACF);
     COH = squeeze(COH);
@@ -205,4 +209,10 @@ if M == 1
     COR = squeeze(COR);
     PCOR = squeeze(PCOR);    
 end
+
+
+
+stationary = struct('ACF',ACF,'COH',COH,'COV',COV,'COR',COR,...
+    'PCOR',PCOR,'VAR',VAR);
+
 
