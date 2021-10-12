@@ -114,7 +114,7 @@ end
 if ~exist('scale','var')
     scale = [];
 end
-if ~exist('parallel','var')
+if ~exist('parallel','var') || isempty(parallel)
     parallel = true;
 end
 if ~exist('opts','var')
@@ -161,9 +161,15 @@ end
 % MAIN LOOP
 parfor (b=1:B, poolsize) 
        
-    % Parametric bootstrap
-    y = simulate_obs(pars,T);
-
+    % Resample data by parametric bootstrap
+    % Try to ensure that each regime occurs at least once
+    count = 0; Meff = 0;
+    while count < 20 && Meff < M
+        count = count + 1;
+        [y,S] = simulate_obs(pars,T);
+        Meff = numel(unique(S));
+    end
+  
     % EM algorithm
     try
         pars0 = init_obs(y,M,p,r,opts,control,equal,fixed,scale);

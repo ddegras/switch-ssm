@@ -73,8 +73,7 @@ function [outpars,LL] = ...
 %           LL - Bootstrap distribution of attained log-likelihood (1xB)
 %            
 %                    
-% Author:   David Degras, david.degras@umb.edu
-%           University of Massachusetts Boston
+% Author:   David Degras, University of Massachusetts Boston
 %
 %-------------------------------------------------------------------------%
 
@@ -106,7 +105,7 @@ end
 if ~exist('opts','var')
     opts = [];
 end
-if ~exist('parallel','var')
+if ~exist('parallel','var') || isempty(parallel)
     parallel = true;
 end
 if ~exist('match','var') || isempty(match)
@@ -148,10 +147,16 @@ end
 
 parfor (b=1:B, poolsize)
             
-    % Parametric bootstrap
-    y = simulate_var(pars,T);
-        
-    % EM algorithm 
+    % Resample data by parametric bootstrap
+    % Try to ensure that each regime occurs at least once
+    count = 0; Meff = 0;
+    while count < 20 && Meff < M
+        count = count + 1;
+        [y,S] = simulate_var(pars,T);
+        Meff = numel(unique(S));
+    end
+    
+    % Run EM algorithm 
     try 
         pars0 = init_var(y,M,p,opts,control,equal,fixed,scale);
         [~,~,~,~,parsboot,LL] = ... 
@@ -159,6 +164,8 @@ parfor (b=1:B, poolsize)
     catch
         continue
     end  
+    
+    % Store results
     Aboot(:,:,:,:,b) = parsboot.A;
     Qboot(:,:,:,b) = parsboot.Q;
     muboot(:,:,b) = parsboot.mu;

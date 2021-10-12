@@ -77,13 +77,11 @@ function [Mf,Ms,Sf,Ss,outpars,LL] = ...
 %               Sigma - Estimated initial variance of state vector (size rxrxM)
 %           LL  - Sequence of log-likelihood values
 %                    
-% Author:   David Degras, david.degras@umb.edu
-%           University of Massachusetts Boston
+% Author:   David Degras (University of Massachusetts Boston)
 %
-% Contributors: Chee Ming Ting (Monash University)
+% Contributors: Chee Ming Ting (Monash University Malaysia)
 %           Siti Balqis Samdin (Xiamen University Malaysia)
-%               
-% Version:  March 13, 2021
+%
 %--------------------------------------------------------------------------
 
 

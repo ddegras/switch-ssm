@@ -92,29 +92,11 @@ for i = 1:8
 end
 
 % MLEs of stationary autocorrelation, covariance, and correlation
-[ACF,~,COV,VAR] = get_covariance(pars,lagmax,0);
-COR = NaN(N,N,M);
-PCOR = NaN(N,N,M);
-mask = logical(eye(N));
-for j = 1:M
-    try 
-        COR(:,:,j) = corrcov(COV(:,:,j)+COV(:,:,j)');
-    catch
-        SDj = sqrt(VAR(:,j));
-        SDj(SDj == 0) = 1;
-        COR(:,:,j) = diag(1./SDj) * COV * diag(1./SDj);
-    end
-    iCORj = myinv(COR(:,:,j));
-    try 
-        PCORj = - corrcov(iCORj + iCORj');
-    catch
-       SDj = sqrt(diag(PCORj));
-        SDj(SDj == 0) = 1;
-        PCORj = diag(1./SDj) * PCORj * diag(1./SDj);
-    end
-    PCORj(mask) = 1;
-    PCOR(:,:,j) = PCORj;
-end
+stationary = get_covariance(pars,lagmax,0);
+ACF = stationary.ACF;
+COV = stationary.COV;
+COR = stationary.COR;
+PCOR = stationary.PCOR;
 
 % Bootstrap distribution of stationary autocorrelation, covariance, and 
 % correlation
@@ -133,11 +115,11 @@ for b = 1:B
         parsb.C = parsboot.C(:,:,:,b);      
         parsb.R = parsboot.R(:,:,b);
     end        
-    [ACFb,~,COVb,CORb,PCORb] = get_covariance(parsb,lagmax,0);
-    ACFboot(:,:,:,b) = ACFb;
-    COVboot(:,:,:,b) = COVb;
-    CORboot(:,:,:,b) = CORb;
-    PCORboot(:,:,:,b) = PCORb;
+    stationaryboot = get_covariance(parsb,lagmax,0);
+    ACFboot(:,:,:,b) = stationaryboot.ACF;    
+    COVboot(:,:,:,b) = stationaryboot.COV;
+    CORboot(:,:,:,b) = stationaryboot.COR;
+    PCORboot(:,:,:,b) = stationaryboot.PCOR;
 end
 
 % Bootstrap CIs for stationary autocorrelation, covariance, and correlation

@@ -159,17 +159,25 @@ end
 
 parfor (b=1:B, poolsize) 
 
-    % Generate data
-    y = simulate_dyn(pars,T);
-
-    % EM algorithm  
-%     try
+    % Resample data by parametric bootstrap
+    % Try to ensure that each regime occurs at least once
+    count = 0; Meff = 0;
+    while count < 20 && Meff < M
+        count = count + 1;
+        [y,S] = simulate_dyn(pars,T);
+        Meff = numel(unique(S));
+    end
+    
+    % Run EM algorithm  
+    try
         pars0 = init_dyn(y,M,p,r,opts,control,equal,fixed,scale);
         [~,~,~,~,~,~,parsboot,LL] = ... 
            switch_dyn(y,M,p,r,pars0,control,equal,fixed,scale); 
-%     catch
-%         continue
-%     end
+    catch
+        continue
+    end
+    
+    % Store results
     Aboot(:,:,:,:,b) = parsboot.A;
     Cboot(:,:,b) = parsboot.C;
     Qboot(:,:,:,b) = parsboot.Q;
