@@ -7,7 +7,7 @@ function stationary = get_covariance(pars,lagmax,nfreq)
 %           and partial correlation matrix for each regime of a switching 
 %           state-space model 
 %
-% Usage:    out = get_covariance(pars,lagmax,nfreq)
+% Usage:    stationary = get_covariance(pars,lagmax,nfreq)
 %
 % Inputs:   pars - structure with fields  
 %               A - transition matrices ([r,r,p,M])
