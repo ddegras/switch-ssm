@@ -67,7 +67,8 @@ function [outpars,LL] = ...
 %                   'C': value of the (Euclidean) column norms of the 
 %                       matrices C(j). Must be positive.
 %           match - parameter to use to match the bootstrap replicates to
-%                   the maximum likelihood estimate: 'A', 'AQ', 'COV', 'COR'   
+%                   the maximum likelihood estimate: 'A', 'AQ', 'COV', 
+%                   'COR'. Default = 'COV'   
 %                   
 %                   
 % Outputs:  outpars - struct with fields 
