@@ -25,6 +25,7 @@ function [outpars,LL] = ...
 %           B - Number of bootstrap replicates (default = 500)
 %           control - optional struct variable with fields: 
 %                   eps tolerance for EM termination; default = 1e-8
+%               'init': starting point for EM algorithm
 %               'ItrNo': number of EM iterations; default = 100 
 %               'beta0': initial inverse temperature parameter for 
 %                       deterministic annealing; default = 1 
@@ -144,12 +145,19 @@ if verbose && parallel
     parfor_progress(B);
 end
 
+% Set starting value for EM algorithm if provided
+pars0 = [];
+if isfield(control,'init')
+    pars0 = control.init;
+end
+
 
 parfor (b=1:B, poolsize)
             
     % Resample data by parametric bootstrap
-    % Try to ensure that each regime occurs at least once
+    % Ensure that each regime occurs at least once
     count = 0; Meff = 0;
+    y = [];
     while count < 20 && Meff < M
         count = count + 1;
         [y,S] = simulate_var(pars,T);
@@ -157,10 +165,17 @@ parfor (b=1:B, poolsize)
     end
     
     % Run EM algorithm 
+    pars0b = pars0;
+    if isempty(pars0b)
+        try 
+            pars0b = init_var(y,M,p,opts,control,equal,fixed,scale);
+        catch
+            continue
+        end  
+    end
     try 
-        pars0 = init_var(y,M,p,opts,control,equal,fixed,scale);
         [~,~,~,~,parsboot,LL] = ... 
-            switch_var(y,M,p,pars0,control,equal,fixed,scale); 
+            switch_var(y,M,p,pars0b,control,equal,fixed,scale); 
     catch
         continue
     end  
