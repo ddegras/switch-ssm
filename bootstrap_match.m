@@ -79,24 +79,18 @@ switch target
         end
         trgt_val = zeros(N,N,M);
         for j = 1:M
-            trgt_val(:,:,j) = pars.C(:,:,j) * pars.C(:,:,j)';
+            C_j = pars.C(:,:,j);
+            trgt_val(:,:,j) = (C_j / (C_j' * C_j)) * C_j';
         end
     case 'AQ'
         trgt_val = [reshape(pars.A,[],M) ; reshape(pars.Q,[],M)];
     case 'COV'
-        [~,~,trgt_val] = get_covariance(pars,0,0);
+        stationary = get_covariance(pars,0,0);
+        trgt_val = stationary.COV;
+    %         [~,~,trgt_val] = get_covariance(pars,0,0);
     case 'COR'
-        [~,~,COV,VAR] = get_covariance(pars,0,0);
-        trgt_val = zeros(size(COV));
-        for j = 1:M
-            try 
-                trgt_val(:,:,j) = corrcov(COV(:,:,j) + COV(:,:,j)');
-            catch 
-                SDj = sqrt(VAR(:,j));
-                SDj(SDj == 0) = 1;
-                trgt_val(:,:,j) = diag(1 ./ SDj) * COV(:,:,j) * diag(1 ./ SDj);
-            end
-        end
+        stationary = get_covariance(pars,0,0);
+        trgt_val = stationary.COR;
 end            
 trgt_val = reshape(trgt_val,[],M);
 
@@ -123,7 +117,8 @@ for b = 1:B
         case 'C'            
             boot_val = zeros(N,N,M);
             for j = 1:M
-                boot_val(:,:,j) = parsboot.C(:,:,j,b) * parsboot.C(:,:,j,b)';
+                C_j = parsboot.C(:,:,j,b);
+                boot_val(:,:,j) = (C_j / (C_j' * C_j)) * C_j';
             end
         case 'AQ'
             boot_val = [reshape(parsboot.A(:,:,:,:,b),[],M) ; ...
@@ -138,7 +133,8 @@ for b = 1:B
                 pars.C = parsboot.C(:,:,:,b);
                 parb.R = parsboot.R(:,:,b);           
             end
-            [~,~,boot_val] = get_covariance(parb,0,0);
+            stationary = get_covariance(parb,0,0);
+            boot_val = stationary.COV;
         case 'COR'
             parb.A = parsboot.A(:,:,:,:,b);
             parb.Q = parsboot.Q(:,:,:,b);
@@ -149,17 +145,8 @@ for b = 1:B
                 pars.C = parsboot.C(:,:,:,b);
                 parb.R = parsboot.R(:,:,b);
             end
-            [~,~,COV] = get_covariance(parb,0,0);
-            boot_val = NaN(N,N,M);
-            for j = 1:M
-                try 
-                    boot_val(:,:,j) = corrcov(COV(:,:,j) + COV(:,:,j)');
-                catch 
-                    SDj = sqrt(VAR(:,j));
-                    SDj(SDj == 0) = 1;
-                    boot_val(:,:,j) = diag(1 ./ SDj) * COV(:,:,j) * diag(1 ./ SDj);
-                end
-            end
+            stationary = get_covariance(parb,0,0);
+            boot_val = stationary.COR;
     end            
     boot_val = reshape(boot_val,[],M);  
     
