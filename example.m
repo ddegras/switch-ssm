@@ -267,10 +267,14 @@ fprintf('Relative error: %f\n',norm(PChat-PC,'fro')/norm(PC,'fro'));
 % observation vector y(t)  
 % lim V(x(t)|S(1:t)=j), lim V(y(t)|S(1:t)=j), j=1:M, t -> infinity
 lagmax = 10; nfreq = 0;
-[ACFx,~,Vx] = get_covariance(rmfield(theta,{'C','R'}),lagmax,nfreq);
-[ACFy,~,Vy] = get_covariance(theta,lagmax,nfreq);
-[ACFxhat,~,Vxhat] = get_covariance(rmfield(thetahat,{'C','R'}),lagmax,nfreq);
-[ACFyhat,~,Vyhat] = get_covariance(thetahat,lagmax,nfreq);
+stationary = get_covariance(rmfield(theta,{'C','R'}),lagmax,nfreq);
+ACFx = stationary.ACF; Vx = stationary.COV;
+stationary = get_covariance(theta,lagmax,nfreq);
+ACFy = stationary.ACF; Vy = stationary.COV;
+stationary = get_covariance(rmfield(thetahat,{'C','R'}),lagmax,nfreq);
+ACFxhat = stationary.ACF; Vxhat = stationary.COV;
+stationary = get_covariance(thetahat,lagmax,nfreq);
+ACFyhat = stationary.ACF; Vyhat = stationary.COV;
 
 % Plot the autocorrelation functions for x
 figure
