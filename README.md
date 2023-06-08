@@ -25,7 +25,7 @@ NEW: the function `bootstrap_ci` builds (pointwise) bootstrap confidence interva
 **Contributors:** Chee Ming Ting @CheeMingTing, Siti Balqis Samdin
 
 ## References
-- Degras, D., Ting, C.M., and Ombao, H.: Markov-Switching State-Space Models with Applications to Neuroimaging. _Under revision_ (2021)
+- Degras, D., Ting, C.M., and Ombao, H.: Markov-Switching State-Space Models with Applications to Neuroimaging. _Computational Statistics and Data Analysis_ 174 (2022)
 - Kim, C.J.: Dynamic linear models with Markov-switching. _J. Econometrics_ 60(1-2), 1–22 (1994)
 - Kim, C.J., Nelson, C.R.: State-Space Models with Regime Switching: Classical and Gibbs-Sampling Approaches with Applications. _The MIT Press_ (1999)
 - Murphy, K.P.: Switching Kalman filters. Tech. rep., _University of California Berkeley_ (1998)
